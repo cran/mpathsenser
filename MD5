@@ -1,8 +1,8 @@
-15408b7f9f30faba3cde1a6246ee3219 *DESCRIPTION
+97fe94225a233b5177b78e0dc792d565 *DESCRIPTION
 6a1fbd88800c9e2063ec9d716ac3dc22 *NAMESPACE
-67ab721756ae01bf0a6477a1fd3b7fc2 *NEWS.md
-5c9d48f3a203bb0147703d129541bd05 *R/database.R
-a54b357532474715228285c6f86d84f2 *R/functions.R
+ba5cd69e20bf36f0cf309f63b5d9b02f *NEWS.md
+d5ce5df7d156f127e25ad08ebcf1e4ee *R/database.R
+cfc660a8715cbeb4833a70474ee027f4 *R/functions.R
 c40248544bc2187fb21903c5173bf871 *R/globals.R
 fd888f53522bf0f7c51a345ac5802dd0 *R/import_functions.R
 461cb3caf9a5b1727390063b8b0edb78 *R/location_functions.R
@@ -14,7 +14,7 @@ b56ff2b193ecba52f9ec7f3b10cca008 *R/utils-pipe.R
 553e906567f52650448a0e5b094b1667 *README.md
 6bf4f0511dde89eeb2bcd5c7d5ee434e *inst/extdata/carp_db.pdf
 4d1ef0b049a76d53d129af16ecf2422d *inst/extdata/carp_db.png
-b7b98e32f700898b0ec2f62d84854727 *inst/extdata/dbdef.sql
+88a7f70d0dde7386edb56bfce6473f12 *inst/extdata/dbdef.sql
 d6c280eb16985c9f084144cd4b9f74a7 *inst/extdata/indexes.sql
 a33bc15d037c4a98505510b556e3d417 *inst/testdata/broken/backup/broken1.json
 e0fb65aef2403314a88e5eaed3dbe2b4 *inst/testdata/broken/backup/broken2.json
@@ -41,7 +41,7 @@ c053080880864c29a7959642c16f2651 *inst/testdata/test.db
 d7276fb7416613ba21b091c344d4120f *inst/testdata/test.json
 f2745c007feed5edec2f2e9177604f1e *man/app_category.Rd
 3d5ff97099f4582e62985ec4ddb173e4 *man/ccopy.Rd
-ae83b06e6a1d3476edfcbc93ec03ad65 *man/close_db.Rd
+c01fe77627d8e2ad1c3c92767b02aa1f *man/close_db.Rd
 1be40e8a889110c756144163974d908b *man/copy_db.Rd
 80eaac1e575d4fe9592c971386e253d8 *man/coverage.Rd
 f1272b82be13ede26ba30be0559c8df3 *man/create_db.Rd
@@ -70,7 +70,7 @@ e8eb439c4043db9f7e2043a74dc069bc *man/link2.Rd
 f91a671c43f0319f43992291bdd1f125 *man/mpathsenser.Rd
 c1ecc6d1f3876fe6a241ab35d3b93e99 *man/n_screen_on.Rd
 6cef4138990989bca24c8ed424699da8 *man/n_screen_unlocks.Rd
-abfdfc75b63f53fc4735a600e31380d0 *man/open_db.Rd
+d262e98b08c6e642faa75d5d5ad670b9 *man/open_db.Rd
 29ee7383caa7fc8c14f52bd035509064 *man/pipe.Rd
 ae78aa30cf01acf3d398e3879c5b4b27 *man/screen_duration.Rd
 9956d00824d9057b588ef3df17a86873 *man/sensors.Rd
@@ -78,9 +78,9 @@ a0cab7278f7c0f7ffe595c6f166f74e7 *man/step_count.Rd
 fce3bae851b9ea7f1d2156e40eed6a88 *man/test_jsons.Rd
 54d803dbc0bb06f20d162f91fcd9ad0f *man/unzip_data.Rd
 78de40401d433eaea0d0e1631bbfcb45 *tests/testthat.R
-7e647915d4cbaa30bc4b63ddd1e0fab6 *tests/testthat/test-data.R
-cc3d7ff6b72e4b32f8be01eb653ae251 *tests/testthat/test-database.R
+fefbdf5d2877c0d2ca263837b90e7acc *tests/testthat/test-data.R
+382ffb5e72d05d18c6ce30556d2a6119 *tests/testthat/test-database.R
 bc6e4e5069ffc0363112009615f6f514 *tests/testthat/test-functions.R
-eef6ae757939aaeb1a16b83a1c577a79 *tests/testthat/test-import-functions.R
-461aac44601244d860a87979a7a787ae *tests/testthat/test-sensor_functions.R
+0ec06ff0927d8107d4ff22fcb8daefe7 *tests/testthat/test-import-functions.R
+4fc782cfd2a753ba1e2d0acc34d75417 *tests/testthat/test-sensor_functions.R
 b0e09d5083f3155a4d490877a56e3022 *tests/testthat/test-utils.R
