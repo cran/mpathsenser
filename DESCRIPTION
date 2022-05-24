@@ -1,6 +1,6 @@
 Package: mpathsenser
 Title: Process and Analyse Data from m-Path Sense
-Version: 1.0.1
+Version: 1.0.2
 Authors@R: 
     person(given = "Koen",
            family = "Niemeijer",
@@ -26,8 +26,8 @@ Suggests: curl, dbx, ggplot2, httr, lme4, lmerTest, progressr, rlang,
 Config/testthat/edition: 3
 Config/Needs/website: tidyverse/tidytemplate
 NeedsCompilation: no
-Packaged: 2022-05-18 12:41:56 UTC; u0134047
+Packaged: 2022-05-22 19:56:29 UTC; u0134047
 Author: Koen Niemeijer [aut, cre] (<https://orcid.org/0000-0002-0816-534X>)
 Maintainer: Koen Niemeijer <koen.niemeijer@kuleuven.be>
 Repository: CRAN
-Date/Publication: 2022-05-19 07:50:06 UTC
+Date/Publication: 2022-05-24 14:00:02 UTC
