@@ -47,6 +47,8 @@ A ggplot of the coverage results if \code{plot} is \code{TRUE} or a tibble conta
 hour, type of measure (i.e. sensor), and (relative) coverage.
 }
 \description{
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#stable}{\figure{lifecycle-stable.svg}{options: alt='[Stable]'}}}{\strong{[Stable]}}
+
 Only applicable to non-reactive sensors with 'continuous' sampling
 }
 \examples{
@@ -69,11 +71,11 @@ freq <- c(
 )
 coverage(
   db = db,
-  participant_id = '12345',
-  sensor = c('Accelerometer', 'Gyroscope'),
+  participant_id = "12345",
+  sensor = c("Accelerometer", "Gyroscope"),
   frequency = mpathsenser::freq,
-  start_date = '2021-01-01',
-  end_date = '2021-05-01'
+  start_date = "2021-01-01",
+  end_date = "2021-05-01"
 )
 }
 }

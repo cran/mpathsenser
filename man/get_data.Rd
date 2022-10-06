@@ -28,6 +28,8 @@ last entry for a participant.}
 A lazy \code{\link[dplyr]{tbl}} containing the requested data.
 }
 \description{
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#stable}{\figure{lifecycle-stable.svg}{options: alt='[Stable]'}}}{\strong{[Stable]}}
+
 This is a generic function to help extract data from an m-Path sense database. For some sensors
 that require a bit more pre-processing, such as app usage and screen time, more specialised
 functions are available (e.g. \code{\link[mpathsenser]{get_app_usage}} and
@@ -39,9 +41,9 @@ functions are available (e.g. \code{\link[mpathsenser]{get_app_usage}} and
 db <- open_db()
 
 # Retrieve some data
-get_data(db, 'Accelerometer', '12345')
+get_data(db, "Accelerometer", "12345")
 
 # Or within a specific window
-get_data(db, 'Accelerometer', '12345', '2021-01-01', '2021-01-05')
+get_data(db, "Accelerometer", "12345", "2021-01-01", "2021-01-05")
 }
 }

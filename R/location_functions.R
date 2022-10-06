@@ -1,5 +1,8 @@
 #' Decrypt GPS data from a curve25519 public key
 #'
+#' @description
+#' `r lifecycle::badge("stable")`
+#'
 #' By default, the latitude and longitude of the GPS data collected by m-Path Sense will be encrypted
 #' using an asymmetric curve25519 key to provide extra protection for these highly sensitive data.
 #' This function takes the entire location data set and decrypts its longitude and latitude columns
@@ -12,31 +15,43 @@
 #' @export
 decrypt_gps <- function(data, key) {
   if (!requireNamespace("sodium", quietly = TRUE)) {
-    stop(paste0("package sodium is needed for this function to work. ",
-                "Please install it using install.packages(\"sodium\")"),
-         call. = FALSE)
+    stop(paste0(
+      "package sodium is needed for this function to work. ",
+      "Please install it using install.packages(\"sodium\")"
+    ),
+    call. = FALSE
+    )
   }
 
-  if (!is.raw(key) & !is.character(key))
+  if (!is.raw(key) & !is.character(key)) {
     stop("key must be either a character or raw vector")
+  }
 
   if (!is.raw(key)) {
     key <- sodium::hex2bin(key)
   }
 
+  # Make some functions vectorised for neater syntax later on
   vec_hex2bin <- Vectorize(sodium::hex2bin, SIMPLIFY = FALSE)
   vec_simple_decrypt <- Vectorize(sodium::simple_decrypt, vectorize.args = "bin", SIMPLIFY = FALSE)
   vec_rawToChar <- Vectorize(rawToChar, SIMPLIFY = FALSE)
 
-  data %>%
+  # Internal decryption process
+  internal_decrypt <- function(hex_vec) {
+    hex_vec <- hex_vec %>%
+      vec_hex2bin() %>%
+      vec_simple_decrypt(key) %>%
+      vec_rawToChar() %>%
+      unlist()
+
+    hex_vec
+  }
+
+  data <- data %>%
     dplyr::collect() %>%
-    dplyr::mutate(dplyr::across(c(latitude, longitude), ~{
-      .x %>%
-        vec_hex2bin() %>%
-        vec_simple_decrypt(key) %>%
-        vec_rawToChar() %>%
-        unlist()
-    }))
+    dplyr::mutate(dplyr::across(c(latitude, longitude), internal_decrypt))
+
+  data
 }
 
 deg2rad <- function(deg) {
@@ -48,6 +63,9 @@ rad2deg <- function(rad) {
 }
 
 #' Calculate the Great-Circle Distance between two points in kilometers
+#'
+#' @description
+#' `r lifecycle::badge("stable")`
 #'
 #' Calculate the great-circle distance between two points using the Haversine function.
 #'
@@ -89,6 +107,9 @@ location_variance <- function(lat, lon, time) {
 
 #' Reverse geocoding with latitude and longitude
 #'
+#' @description
+#' `r lifecycle::badge("experimental")`
+#'
 #' This functions allows you to extract information about a place based on the latitude and
 #' longitude from the OpenStreetMaps nominatim API.
 #'
@@ -98,7 +119,7 @@ location_variance <- function(lat, lon, time) {
 #' @param email If you are making large numbers of request please include an appropriate email
 #' address to identify your requests. See Nominatim's Usage Policy for more details.
 #' @param rate_limit The time interval to keep between queries, in seconds. If the rate limit is
-#'too low, the OpenStreetMaps may reject further requests or even ban your entirely.
+#' too low, the OpenStreetMaps may reject further requests or even ban your entirely.
 #'
 #' @section Warning:
 #' Do not abuse this function or you will be banned by OpenStreetMap. The maximum number
@@ -115,11 +136,13 @@ location_variance <- function(lat, lon, time) {
 #' geocode_rev(50.037936, 8.5599631)
 geocode_rev <- function(lat, lon, zoom = 18, email = "", rate_limit = 1) {
   base_query <- "https://nominatim.openstreetmap.org/reverse.php?"
-  args <- list(lat = lat,
-               lon = lon,
-               email = rep(email, length(lat)),
-               zoom = rep(zoom, length(lat)),
-               format = rep("jsonv2", length(lat)))
+  args <- list(
+    lat = lat,
+    lon = lon,
+    email = rep(email, length(lat)),
+    zoom = rep(zoom, length(lat)),
+    format = rep("jsonv2", length(lat))
+  )
 
   args <- purrr::transpose(args)
   args <- lapply(args, function(x) paste0(names(x), "=", x, collapse = "&"))

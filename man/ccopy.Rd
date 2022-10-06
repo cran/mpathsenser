@@ -4,7 +4,7 @@
 \alias{ccopy}
 \title{Copy mpathsenser zip files to a new location}
 \usage{
-ccopy(from, to = getwd(), recursive = TRUE)
+ccopy(from, to, recursive = TRUE)
 }
 \arguments{
 \item{from}{A path to copy files from.}
@@ -17,11 +17,13 @@ ccopy(from, to = getwd(), recursive = TRUE)
 A message indicating how many files were copied.
 }
 \description{
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#stable}{\figure{lifecycle-stable.svg}{options: alt='[Stable]'}}}{\strong{[Stable]}}
+
 Copy zip files from a source destination to an origin destination where they do not yet exist.
-That is, it only updates the origin folder from the source folder.
+That is, it only updates the target folder from the source folder.
 }
 \examples{
 \dontrun{
-ccopy('K:/data/myproject/', '~/myproject')
+ccopy("K:/data/myproject/", "~/myproject")
 }
 }

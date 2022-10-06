@@ -1,5 +1,8 @@
 #' Generic helper function from extracting data from an m-Path Sense database
 #'
+#' @description
+#' `r lifecycle::badge("stable")`
+#'
 #' This is a generic function to help extract data from an m-Path sense database. For some sensors
 #' that require a bit more pre-processing, such as app usage and screen time, more specialised
 #' functions are available (e.g. \code{\link[mpathsenser]{get_app_usage}} and
@@ -27,14 +30,21 @@
 #' db <- open_db()
 #'
 #' # Retrieve some data
-#' get_data(db, 'Accelerometer', '12345')
+#' get_data(db, "Accelerometer", "12345")
 #'
 #' # Or within a specific window
-#' get_data(db, 'Accelerometer', '12345', '2021-01-01', '2021-01-05')
+#' get_data(db, "Accelerometer", "12345", "2021-01-01", "2021-01-05")
 #' }
 get_data <- function(db, sensor, participant_id = NULL, start_date = NULL, end_date = NULL) {
-  if (!DBI::dbIsValid(db))
+  if (!DBI::dbIsValid(db)) {
     stop("Database connection is not valid")
+  }
+  if (!is.character(sensor) | length(sensor) == 0 | length(sensor) > 1) {
+    stop("sensor should be a character vector of size 1")
+  }
+  if (!(sensor %in% sensors) & !(sensor %in% tolower(sensors))) {
+    stop("this sensor does not exist")
+  }
 
   out <- dplyr::tbl(db, sensor)
 
@@ -60,6 +70,9 @@ get_data <- function(db, sensor, participant_id = NULL, start_date = NULL, end_d
 
 #' Extract the date of the first entry
 #'
+#' @description
+#' `r lifecycle::badge("stable")`
+#'
 #' A helper function for extracting the first date of entry of (of one or all participant) of one
 #' sensor. Note that this function is specific to the first date of a sensor. After all, it
 #' wouldn't make sense to extract the first date for a participant of the accelerometer, while the
@@ -73,7 +86,7 @@ get_data <- function(db, sensor, participant_id = NULL, start_date = NULL, end_d
 #' @examples
 #' \dontrun{
 #' db <- open_db()
-#' first_date(db, 'Accelerometer', '12345')
+#' first_date(db, "Accelerometer", "12345")
 #' }
 first_date <- function(db, sensor, participant_id = NULL) {
   query <- paste0("SELECT MIN(date) AS `min` FROM `", sensor, "`")
@@ -85,6 +98,9 @@ first_date <- function(db, sensor, participant_id = NULL) {
 }
 
 #' Extract the date of the last entry
+#'
+#' @description
+#' `r lifecycle::badge("stable")`
 #'
 #' A helper function for extracting the last date of entry of (of one or all participant) of one
 #' sensor. Note that this function is specific to the last date of a sensor. After all, it
@@ -99,7 +115,7 @@ first_date <- function(db, sensor, participant_id = NULL) {
 #' @examples
 #' \dontrun{
 #' db <- open_db()
-#' first_date(db, 'Accelerometer', '12345')
+#' first_date(db, "Accelerometer", "12345")
 #' }
 last_date <- function(db, sensor, participant_id = NULL) {
   query <- paste0("SELECT MAX(date) AS `max` FROM `", sensor, "`")
@@ -110,192 +126,10 @@ last_date <- function(db, sensor, participant_id = NULL) {
   DBI::dbGetQuery(db, query)[1, 1]
 }
 
-
-#' Match y to the time scale of x
-#'
-#' Function for linking mobile sensing and ESM data
-#'
-#' assumption: both x and y have column 'time' containing \link[base]{DateTimeClasses}
-#'
-#' @param x,y A pair of data frames or data frame extensions (e.g. a tibble). Both \code{x} and
-#' \code{y} must have a column called \code{time}.
-#' @param by If NULL, the default, \code{*_join()} will perform a natural join, using all variables
-#' in common across \code{x} and \code{y}. A message lists the variables so that you can check
-#' they're correct; suppress the message by supplying by explicitly.
-#'
-#' To join by different variables on x and y, use a named vector. For example,
-#' \code{by = c('a' = 'b')} will match \code{x$a} to \code{y$b}
-#'
-#' To join by multiple variables, use a vector with length > 1. For example, by = c('a', 'b') will
-#' match \code{x$a} to \code{y$a} and \code{x$b} to \code{y$b}. Use a named vector to match
-#' different variables in x and y. For example, \code{by = c('a' = 'b', 'c' = 'd')} will match
-#' \code{x$a} to \code{y$b} and \code{x$c} to \code{y$d}.
-#'
-#' To perform a cross-join, generating all combinations of \code{x} and \code{y}, use
-#' \code{by = character()}.
-#' @param offset The time window in which y is to be matched to x. Must be convertible to a period
-#' by \link[lubridate]{as.period}.
-#'
-#' @return A tibble with the data of \code{x} with a new column \code{data} with the matched data
-#' of \code{y} according to \code{offset}.
-#'
-#' @export
-link <- function(x, y, by = NULL, offset) {
-
-  if (is.null(x) || !is.data.frame(x))
-    stop("x must be a data frame")
-  if (is.null(y) || !is.data.frame(y))
-    stop("y must be a data frame")
-  if (!is.null(by) && !is.character(by))
-    stop("by must be a character vector of variables to join by")
-  if (is.null(offset) || !(is.character(offset)
-                           | lubridate::is.period(offset)
-                           | is.numeric(offset)))
-    stop("offset must be a character vector, numeric vector, or a period")
-
-  if (is.character(offset) | is.numeric(offset))
-    offset <- lubridate::as.period(offset)
-  if (is.na(offset))
-    stop(paste("Invalid offset specified. Try something like '30 minutes' or",
-               "lubridate::minutes(30). Note that negative values do not work when",
-               "specifying character vectors, instead use minutes(-30) or -1800."))
-
-  # Check for time column
-  if (!("time" %in% colnames(x) & "time" %in% colnames(y)))
-    stop("column 'time' must be present in both x and y")
-  if (!lubridate::is.POSIXct(x$time))
-    stop("column 'time' in x must be a POSIXct")
-  if (!lubridate::is.POSIXct(y$time))
-    stop("column 'time' in y must be a POSIXct")
-
-  # Do not perform matching when x and y are identical
-  if (identical(x, y) || isTRUE(dplyr::all_equal(x, y)))
-    stop("x and y are identical")
-
-  # Match sensing data with ESM using a nested join Set a start_time (beep time - offset)
-  # and an end_time (beep time)
-  res <- x %>%
-    dplyr::mutate(start_time = time + offset) %>%
-    dplyr::mutate(end_time = time) %>%
-    dplyr::nest_join(y, by = by, name = "data") %>%
-    dplyr::mutate(id = dplyr::row_number()) %>%
-    dplyr::group_by(id)  # Group each row to prevent weird behaviour
-
-  # Then, simply remove all rows in the nested tables that are not within the interval
-  # specified by start_time and end_time
-  if (offset < 0) {
-    res$data <- purrr::pmap(list(res$data, res$start_time, res$end_time),
-                            function(data, start_time, end_time) {
-                              data[data$time >= start_time & data$time <= end_time, ]
-                            })
-  } else {
-    # Reverse logic if interval occurs after beep
-    res$data <- purrr::pmap(list(res$data, res$start_time, res$end_time),
-                            function(data, start_time, end_time) {
-                              data[data$time >= end_time & data$time <= start_time, ]
-                            })
-  }
-
-  res <- res %>%
-    dplyr::ungroup() %>%
-    dplyr::select(-c(id, start_time, end_time))
-
-  res
-}
-
-#' Link two sensors OR one sensor and an external data frame
-#'
-#' This function is specific to mpathsenser databases. It is a wrapper around
-#' \link[mpathsenser]{link} but extracts data in the database for you.
-#'
-#' @inheritParams get_data
-#' @param sensor_one The name of a primary sensor. See \link[mpathsenser]{sensors} for a list of
-#' available sensors.
-#' @param sensor_two The name of a secondary sensor. See \link[mpathsenser]{sensors} for a list of
-#' available sensors. Cannot be used together with \code{external}.
-#' @param offset The time window in which y is to be matched to x. Must be convertible to a period
-#'  by \link[lubridate]{as.period}.
-#' @param external Optionally, specify an external data frame. Cannot be used at the same time as
-#' a second sensor. This data frame must have a column called \code{time}.
-#' @param reverse Switch \code{sensor_one} with either \code{sensor_two} or \code{external}?
-#' Particularly useful in combination with \code{external}.
-#' @param ignore_large Safety override to prevent long wait times. Set to \code{TRUE} to do this
-#' function on lots of data.
-#'
-#' @seealso \code{\link[mpathsenser]{link}}
-#'
-#' @return A tibble with the data of \code{sensor_one} with a new column \code{data} with the
-#' matched data of either \code{sensor_two} or \code{external} according to \code{offset}. The
-#' other way around when \code{reverse = TRUE}.
-#' @export
-link2 <- function(db,
-                  sensor_one,
-                  sensor_two = NULL,
-                  offset,
-                  participant_id = NULL,
-                  start_date = NULL,
-                  end_date = NULL,
-                  external = NULL,
-                  reverse = FALSE,
-                  ignore_large = FALSE) {
-
-  if (!DBI::dbIsValid(db))
-    stop("Database connection is not valid")
-  if (is.null(external) & is.null(sensor_two))
-    stop("either a second sensor or an external data frame must be supplied")
-  if (!is.null(external) & !is.null(sensor_two))
-    stop("only a second sensor or an external data frame can be supplied, but not both")
-  if (!is.null(external) && !is.data.frame(external))
-    stop("external must be a data frame")
-  if (!is.null(sensor_two) && !is.character(sensor_two))
-    stop("sensor_two must be a character vector")
-
-  # See if data is not incredibly large
-  if (!ignore_large) {
-    n <- sum(get_nrows(db, c(sensor_one, sensor_two), participant_id, start_date, end_date),
-             nrow(external))
-    if (n > 1e+05) {
-      stop("the total number of rows is higher than 100000. Use ignore_large = TRUE to continue")
-    }
-  }
-
-  if (!is.null(sensor_two)) {
-    dat_two <- get_data(db, sensor_two, participant_id, start_date, end_date) %>%
-      dplyr::mutate(time = paste(date, time)) %>%
-      dplyr::select(-date) %>%
-      dplyr::collect() %>%
-      dplyr::mutate(time = as.POSIXct(time, format = "%F %H:%M:%OS"))
-  } else {
-    dat_two <- external
-  }
-
-  # Get dates of dat_two to shrink dat_one as much as possible
-  dates <- unique(as.Date(dat_two$time))
-
-  dat_one <- get_data(db, sensor_one, participant_id, start_date, end_date) %>%
-    dplyr::filter(date %in% dates) %>%
-    dplyr::mutate(time = paste(date, time)) %>%
-    dplyr::select(-date) %>%
-    dplyr::collect() %>%
-    dplyr::mutate(time = as.POSIXct(time, format = "%F %H:%M:%OS"))
-
-
-  if (is.null(external) & reverse) {
-    tmp <- dat_one
-    dat_one <- dat_two
-    dat_two <- tmp
-  } else if (!is.null(external) & !reverse) {
-    tmp <- dat_one
-    dat_one <- external
-    dat_two <- tmp
-  }
-
-  link(dat_one, dat_two, "participant_id", offset)
-
-}
-
-
 #' Get installed apps
+#'
+#' @description
+#' `r lifecycle::badge("stable")`
 #'
 #' Extract installed apps for one or all participants. Contrarily to other get_* functions in
 #' this package, start and end dates are not used since installed apps are assumed to be fixed
@@ -319,6 +153,9 @@ get_installed_apps <- function(db, participant_id = NULL) {
 
 #' Find the category of an app on the Google Play Store
 #'
+#' @description
+#' `r lifecycle::badge("stable")`
+#'
 #' This function scrapes the Google Play Store by using \code{name} as the search term. From there
 #' it selects the first result in the list and its corresponding category and package name.
 #'
@@ -326,6 +163,12 @@ get_installed_apps <- function(db, participant_id = NULL) {
 #' @param num Which result should be selected in the list of search results. Defaults to one.
 #' @param rate_limit The time interval to keep between queries, in seconds. If the rate limit is too
 #' low, the Google Play Store may reject further requests or even ban your entirely.
+#' @param exact In m-Path Sense, the app names of the AppUsage sensor are the last part of the app's
+#' package names. When \code{exact}  is \code{TRUE}, the function guarantees that \code{name} is
+#' exactly equal to the last part of the selected package from the search results. Note that when
+#' \code{exact} is \code{TRUE}, it interacts with \code{num} in the sense that it no longer selects
+#' the top search result but instead the top search result that matches the last part of the package
+#' name.
 #'
 #' @section Warning:
 #' Do not abuse this function or you will be banned by the Google Play Store. The minimum delay
@@ -342,29 +185,38 @@ get_installed_apps <- function(db, participant_id = NULL) {
 #' @export
 #'
 #' @examples
-#' app_category('whatsapp')
+#' app_category("whatsapp")
 #'
 #' # Example of a generic app name where we can't find a specific app
-#' app_category('weather') # Weather forecast channel
+#' app_category("weather") # Weather forecast channel
 #'
 #' # Get OnePlus weather
-#' app_category('net.oneplus.weather')
-app_category <- function(name, num = 1, rate_limit = 5) {
+#' app_category("net.oneplus.weather")
+app_category <- function(name, num = 1, rate_limit = 5, exact = TRUE) {
   # Check if required packages are available
   if (!requireNamespace("curl", quietly = TRUE)) {
-    stop(paste0("package curl is needed for this function to work. ",
-                "Please install it using install.packages(\"curl\")"),
-         call. = FALSE)
+    stop(paste0(
+      "package curl is needed for this function to work. ",
+      "Please install it using install.packages(\"curl\")"
+    ),
+    call. = FALSE
+    )
   }
   if (!requireNamespace("httr", quietly = TRUE)) {
-    stop(paste0("package httr is needed for this function to work. ",
-                "Please install it using install.packages(\"httr\")"),
-         call. = FALSE)
+    stop(paste0(
+      "package httr is needed for this function to work. ",
+      "Please install it using install.packages(\"httr\")"
+    ),
+    call. = FALSE
+    )
   }
   if (!requireNamespace("rvest", quietly = TRUE)) {
-    stop(paste0("package rvest is needed for this function to work. ",
-                "Please install it using install.packages(\"rvest\")"),
-         call. = FALSE)
+    stop(paste0(
+      "package rvest is needed for this function to work. ",
+      "Please install it using install.packages(\"rvest\")"
+    ),
+    call. = FALSE
+    )
   }
 
   res <- data.frame(app = name, package = rep(NA, length(name)), genre = rep(NA, length(name)))
@@ -374,7 +226,7 @@ app_category <- function(name, num = 1, rate_limit = 5) {
   }
 
   for (i in seq_along(name)) {
-    res[i, 2:3] <- app_category_impl(name[i], num)
+    res[i, 2:3] <- app_category_impl(name[i], num, exact)
 
     if (requireNamespace("progressr", quietly = TRUE)) {
       p()
@@ -388,19 +240,17 @@ app_category <- function(name, num = 1, rate_limit = 5) {
   res
 }
 
-app_category_impl <- function(name, num) {
+app_category_impl <- function(name, num, exact) {
   # Replace illegal characters
-  # name <- replace_special(name)
   name <- iconv(name, from = "UTF-8", to = "ASCII//TRANSLIT")
   name <- gsub("[^[:alnum:] .@]", " ", name, perl = TRUE)
   name <- gsub(" ", "%20", name)
 
   query <- paste0("https://play.google.com/store/search?q=", name, "&c=apps")
 
-  ua <- httr::user_agent(paste0("Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like ",
-  "Gecko) Chrome/41.0.2228.0 Safari/537.36"))
+  ua <- httr::user_agent("Mozilla/5.0 (Windows NT 10.0; WOW64; rv:70.0) Gecko/20100101 Firefox/70.0")
 
-  session <- httr::GET(query)
+  session <- httr::GET(query, ua)
 
   if (!httr::http_error(session)) {
     session <- httr::content(session)
@@ -409,8 +259,10 @@ app_category_impl <- function(name, num) {
   }
 
   # Get the link
-  links <- rvest::html_elements(session, css = ".JC71ub")
-  links <- rvest::html_attr(links, "href")
+  links <- session %>%
+    rvest::html_elements("a") %>%
+    rvest::html_attr("href") %>%
+    purrr::keep(~ grepl("^\\/store\\/apps\\/details\\?id=.*$", .x))
 
   if (length(links) == 0) {
     return(list(package = NA, genre = NA))
@@ -418,13 +270,18 @@ app_category_impl <- function(name, num) {
 
   # Check if the name occurs in any of the package names
   # If so, select the num (usually first) link from this list
-  name_detected <- vapply(links, function(x) grepl(x, name), FUN.VALUE = logical(1))
-  if (any(name_detected)) {
-    links <- links[name_detected]
-    link <- links[num]
+  if (exact) {
+    name_detected <- vapply(links, function(x) grepl(paste0("\\.", name, "$/i"), x), FUN.VALUE = logical(1))
+    if (any(name_detected)) {
+      links <- links[name_detected]
+      link <- links[num]
+    } else {
+      link <- links[num]
+    }
   } else {
     link <- links[num]
   }
+
 
   if (is.na(link)) {
     return(list(package = NA, genre = NA))
@@ -443,12 +300,19 @@ app_category_impl <- function(name, num) {
   }
 
   # Extract the genre and return results
-  genre <- rvest::html_nodes(session, xpath = "//*[@itemprop=\"genre\"]")
-  list(package = gsub("^.+?(?<=\\?id=)", "", link, perl = TRUE), genre = rvest::html_text(genre))
+  genre <- session %>%
+    rvest::html_element(xpath = ".//script[contains(., 'applicationCategory')]") %>%
+    rvest::html_text() %>%
+    jsonlite::fromJSON() %>%
+    purrr::pluck("applicationCategory")
+  list(package = gsub("^.+?(?<=\\?id=)", "", link, perl = TRUE), genre = genre)
 }
 
 
 #' Get app usage per hour
+#'
+#' @description
+#' `r lifecycle::badge("experimental")`
 #'
 #' This function extracts app usage per hour for either one or multiple participants. If multiple
 #' days are selected, the app usage time is averaged.
@@ -507,27 +371,45 @@ get_app_usage <- function(db,
 
 #' Get a summary of physical activity (recognition)
 #'
+#' @description
+#' `r lifecycle::badge("experimental")`
+#'
 #' @inheritParams get_data
+#' @param data A data frame containing the activity data. See \link[mpathsenser]{get_data} for
+#' retrieving activity data from an mpathsenser database.
 #' @param confidence The minimum confidence (0-100) that should be assigned to an observation by
 #' Activity Recognition.
-#' @param direction The directionality of the duration calculation, i.e. \eqn{t_{t-1} - t} or
-#' \eqn{t - t_{t+1}}.
+#' @param direction The directionality of the duration calculation, i.e. \eqn{t - t_{t-1}} or
+#' \eqn{t_{t+1} - t}.
 #' @param by Either 'Total', 'Hour', or 'Day' indicating how to summarise the results.
 #'
 #' @return A tibble containing a column 'activity' and a column 'duration' for the hourly
 #' activity duration.
 #' @export
-get_activity <- function(db,
-                         participant_id = NULL,
-                         confidence = 70,
-                         direction = "forward",
-                         start_date = NULL,
-                         end_date = NULL,
-                         by = c("Total", "Day", "Hour")) {
-  data <- get_data(db, "Activity", participant_id, start_date, end_date) %>%
-    dplyr::filter(confidence >= 70) %>%
-    compress_activity() %>%
-    dplyr::mutate(datetime = paste(date, time))
+activity_duration <- function(data = NULL,
+                              db = NULL,
+                              participant_id = NULL,
+                              confidence = 70,
+                              direction = "forward",
+                              start_date = NULL,
+                              end_date = NULL,
+                              by = c("Total", "Day", "Hour")) {
+  if (is.null(data) & is.null(db)) {
+    stop("Either data or db must be specified")
+  }
+
+  if (!is.null(data) & !is.null(db)) {
+    stop("Either data or db must be specified, but not both")
+  }
+
+  if (!is.null(data)) {
+
+  } else {
+    data <- get_data(db, "Activity", participant_id, start_date, end_date) %>%
+      dplyr::filter(confidence >= confidence) %>%
+      compress_activity() %>%
+      dplyr::mutate(datetime = paste(date, time))
+  }
 
   if (tolower(direction) == "forward" | tolower(direction) == "forwards") {
     data <- data %>%
@@ -562,6 +444,9 @@ get_activity <- function(db,
 
 #' Get the device info for one or more participants
 #'
+#' @description
+#' `r lifecycle::badge("stable")`
+#'
 #' @inheritParams get_data
 #'
 #' @return A tibble containing device info for each participant
@@ -576,10 +461,13 @@ device_info <- function(db, participant_id = NULL) {
 compress_activity <- function(data, direction = "forward") {
   data %>%
     dbplyr::window_order(date, time) %>%
-    dplyr::filter(!(dplyr::lead(type) == type && dplyr::lag(type) == type))
+    dplyr::filter(!(dplyr::lead(type) == type & dplyr::lag(type) == type))
 }
 
 #' Screen duration by hour or day
+#'
+#' @description
+#' `r lifecycle::badge("experimental")`
 #'
 #' Calculate the screen duration time where the screen was _unlocked_ (i.e. not just on).
 #'
@@ -596,7 +484,6 @@ screen_duration <- function(db,
                             start_date = NULL,
                             end_date = NULL,
                             by = c("Hour", "Day")) {
-
   out <- get_data(db, "Screen", participant_id, start_date, end_date) %>%
     dplyr::filter(screen_event != "SCREEN_ON") %>%
     dplyr::mutate(datetime = paste(date, time)) %>%
@@ -633,6 +520,9 @@ screen_duration <- function(db,
 
 #' Get number of times screen turned on
 #'
+#' @description
+#' `r lifecycle::badge("experimental")`
+#'
 #' @inheritParams get_data
 #' @param by Either 'Total', 'Hour', or 'Day' indicating how to summarise the results. Defaults to
 #' total.
@@ -645,6 +535,8 @@ n_screen_on <- function(db,
                         start_date = NULL,
                         end_date = NULL,
                         by = c("Total", "Hour", "Day")) {
+  lifecycle::signal_stage("experimental", "moving_average()")
+
   out <- get_data(db, "Screen", participant_id, start_date, end_date) %>%
     dplyr::select(-c(measurement_id, participant_id)) %>%
     dplyr::filter(screen_event == "SCREEN_ON")
@@ -679,6 +571,9 @@ n_screen_on <- function(db,
 
 #' Get number of screen unlocks
 #'
+#' @description
+#' `r lifecycle::badge("experimental")`
+#'
 #' @inheritParams get_data
 #' @param by Either 'Total', 'Hour', or 'Day' indicating how to summarise the results. Defaults to
 #' total.
@@ -692,6 +587,8 @@ n_screen_unlocks <- function(db,
                              start_date = NULL,
                              end_date = NULL,
                              by = c("Total", "Hour", "Day")) {
+  lifecycle::signal_stage("experimental", "moving_average()")
+
   out <- get_data(db, "Screen", participant_id, start_date, end_date) %>%
     dplyr::select(-c(measurement_id, participant_id)) %>%
     dplyr::filter(screen_event == "SCREEN_UNLOCKED")
@@ -727,6 +624,9 @@ n_screen_unlocks <- function(db,
 
 #' Get step count
 #'
+#' @description
+#' `r lifecycle::badge("experimental")`
+#'
 #' Extracts the number of steps per hour as sensed by the underlying operating system.
 #'
 #' @inheritParams get_data
@@ -734,6 +634,8 @@ n_screen_unlocks <- function(db,
 #' @return A tibble with the 'date', 'hour', and the number of 'steps'.
 #' @export
 step_count <- function(db, participant_id = NULL, start_date = NULL, end_date = NULL) {
+  lifecycle::signal_stage("experimental", "step_count()")
+
   get_data(db, "Pedometer", participant_id, start_date, end_date) %>%
     dplyr::mutate(hour = STRFTIME("%H", time)) %>%
     dplyr::group_by(participant_id, date, hour) %>%
@@ -748,6 +650,9 @@ step_count <- function(db, participant_id = NULL, start_date = NULL, end_date = 
 
 #' Moving average for values in an mpathsenser database
 #'
+#' #' @description
+#' `r lifecycle::badge("experimental")`
+#'
 #' @inheritParams get_data
 #' @param participant_id A character string identifying a single participant. Use get_participants
 #' to retrieve all participants from the database.
@@ -759,9 +664,11 @@ step_count <- function(db, participant_id = NULL, start_date = NULL, end_date = 
 #'
 #' @examples
 #' \dontrun{
-#' get_moving_average(db, 'Light', '12345', mean_lux, max_lux, n = 5)
+#' get_moving_average(db, "Light", "12345", mean_lux, max_lux, n = 5)
 #' }
 moving_average <- function(db, sensor, participant_id, ..., n, start_date = NULL, end_date = NULL) {
+  lifecycle::signal_stage("experimental", "moving_average()")
+
   cols <- dplyr::ensyms(...)
 
   # SELECT
@@ -769,16 +676,20 @@ moving_average <- function(db, sensor, participant_id, ..., n, start_date = NULL
 
   # Calculate moving average
   avgs <- lapply(cols, function(x) {
-    paste0("avg(`", x, "`) OVER (", "ORDER BY CAST (strftime('%s', datetime) AS INT) ",
-           "RANGE BETWEEN ", n / 2, " PRECEDING ", "AND ", n / 2, " FOLLOWING", ") AS ", x)
+    paste0(
+      "avg(`", x, "`) OVER (", "ORDER BY CAST (strftime('%s', datetime) AS INT) ",
+      "RANGE BETWEEN ", n / 2, " PRECEDING ", "AND ", n / 2, " FOLLOWING", ") AS ", x
+    )
   })
 
   avgs <- paste0(avgs, collapse = ", ")
   query <- paste0(query, avgs)
 
   # FROM
-  query <- paste0(query, " FROM (SELECT `date` || 'T' || `time` AS `datetime`, ",
-                  paste0(cols, collapse = ", "), " FROM ", sensor)
+  query <- paste0(
+    query, " FROM (SELECT `date` || 'T' || `time` AS `datetime`, ",
+    paste0(cols, collapse = ", "), " FROM ", sensor
+  )
 
   # Where
   query <- paste0(query, " WHERE (`participant_id` = '", participant_id, "')")
@@ -797,6 +708,9 @@ moving_average <- function(db, sensor, participant_id, ..., n, start_date = NULL
 
 #' Identify gaps in mpathsenser mobile sensing data
 #'
+#' @description
+#' `r lifecycle::badge("stable")`
+#'
 #' Oftentimes in mobile sensing, gaps appear in the data as a result of the participant
 #' accidentally closing the app or the operating system killing the app to save power. This can
 #' lead to issues later on during data analysis when it becomes unclear whether there are no
@@ -806,6 +720,7 @@ moving_average <- function(db, sensor, participant_id, ..., n, start_date = NULL
 #' In the latter case, the 6-hour missing period has to be compensated by either removing this
 #' interval altogether or by subtracting the gap from the interval itself (see examples).
 #'
+#' @details
 #' While any sensor can be used for identifying gaps, it is best to choose a sensor with a very
 #' high, near-continuous sample rate such as the accelerometer or gyroscope. This function then
 #' creates time between two subsequent measurements and returns the period in which this time was
@@ -831,20 +746,20 @@ moving_average <- function(db, sensor, participant_id, ..., n, start_date = NULL
 #' @examples
 #' \dontrun{
 #' # Find the gaps for a participant and convert to datetime
-#' gaps <- identify_gaps(db, '12345', min_gap = 60) %>%
+#' gaps <- identify_gaps(db, "12345", min_gap = 60) %>%
 #'   mutate(across(c(to, from), ymd_hms)) %>%
-#'   mutate(across(c(to, from), with_tz, 'Europe/Brussels'))
+#'   mutate(across(c(to, from), with_tz, "Europe/Brussels"))
 #'
 #' # Get some sensor data and calculate a statistic, e.g. the time spent walking
 #' # You can also do this with larger intervals, e.g. the time spent walking per hour
-#' walking_time <- get_data(db, 'Activity', '12345') %>%
+#' walking_time <- get_data(db, "Activity", "12345") %>%
 #'   collect() %>%
 #'   mutate(datetime = ymd_hms(paste(date, time))) %>%
-#'   mutate(datetime = with_tz(datetime, 'Europe/Brussels')) %>%
+#'   mutate(datetime = with_tz(datetime, "Europe/Brussels")) %>%
 #'   arrange(datetime) %>%
 #'   mutate(prev_time = lag(datetime)) %>%
 #'   mutate(duration = datetime - prev_time) %>%
-#'   filter(type == 'WALKING')
+#'   filter(type == "WALKING")
 #'
 #' # Find out if a gap occurs in the time intervals
 #' walking_time %>%
@@ -863,4 +778,146 @@ identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Acc
     dplyr::filter(gap >= min_gap) %>%
     dplyr::select(participant_id, from, to = datetime, gap) %>%
     dplyr::collect()
+}
+
+
+#'Add gap periods to sensor data
+#'
+#'@description `r lifecycle::badge("experimental")`
+#'
+#'  Since there may be many gaps in mobile sensing data, it is pivotal to pay attention in the
+#'  analysis to them. This function adds known gaps to data as "measurements", thereby allowing
+#'  easier calculations for, for example, finding the duration. For instance, consider a participant
+#'  spent 30 minutes walking. However, if it is known there is gap of 15 minutes in this interval,
+#'  we should somehow account for it. \code{add_gaps} accounts for this by adding the gap data to
+#'  sensors data by splitting intervals where gaps occur.
+#'
+#'@details In the example of 30 minutes walking where a 15 minute gap occurred (say after 5
+#'  minutes), \code{add_gaps} adds two rows: one after 5 minutes of the start of the interval
+#'  indicating the start of the gap(if needed containing values from \code{fill}), and one after 20
+#'  minutes of the start of the interval signalling the walking activity. Then, when calculating
+#'  time differences between subsequent measurements, the gap period is appropriately accounted for.
+#'  Note that if multiple measurements occurred before the gap, they will both be continued after
+#'  the gap.
+#'
+#'@param data A data frame containing the activity data. See \link[mpathsenser]{get_data} for
+#'  retrieving activity data from an mpathsenser database.
+#'@param gaps A data frame (extension) containing the gap data. See
+#'  \link[mpathsenser]{identify_gaps} for retrieving gap data from an mpathsenser database. It
+#'  should at least contain the columns \code{from} and \code{to} (both in a date-time format), as
+#'  well as any specified columns in \code{by}.
+#'@param by A character vector indicating the variable(s) to match by, typically the participant
+#'  IDs. If NULL, the default, \code{*_join()} will perform a natural join, using all variables in
+#'  common across \code{x} and \code{y}.
+#'@param fill A named list of the columns to fill with default values for the extra measurements
+#'  that are added because of the gaps.
+#'
+#'@seealso \code{\link[mpathsenser]{identify_gaps}} for finding gaps in the sampling;
+#'  \code{\link[mpathsenser]{link_gaps}} for finding which gaps occur in the data;
+#'
+#'@return A tibble containing the data and the added gaps.
+#'@export
+#'
+#'@examples
+#' # Define some data
+#' dat <- data.frame(
+#'   participant_id = "12345",
+#'   time = as.POSIXct(c("2022-05-10 10:00:00", "2022-05-10 10:30:00", "2022-05-10 11:30:00")),
+#'   type = c("WALKING", "STILL", "RUNNING"),
+#'   confidence = c(80, 100, 20)
+#' )
+#'
+#' # Get the gaps from identify_gaps, but in this example define them ourselves
+#' gaps <- data.frame(
+#'   participant_id = "12345",
+#'   from = as.POSIXct(c("2022-05-10 10:05:00", "2022-05-10 10:50:00")),
+#'   to = as.POSIXct(c("2022-05-10 10:20:00", "2022-05-10 10:10:00"))
+#' )
+#'
+#' # Now add the gaps to the data
+#' add_gaps(data = dat,
+#'          gaps = gaps,
+#'          by = "participant_id")
+#'
+#' # You can use fill if  you want to get rid of those pesky NA's
+#' add_gaps(data = dat,
+#'          gaps = gaps,
+#'          by = "participant_id",
+#'          fill = list(type = "GAP", confidence = 100))
+add_gaps <- function(data, gaps, by = NULL, fill = NULL) {
+  by_names <- colnames(dplyr::select(data, {{ by }}))
+  if (!all(by_names %in% c(colnames(data), colnames(gaps)))) {
+    stop(paste(by, "must be a column in both data and gaps."), call. = FALSE)
+  }
+
+  # Pour the gaps in a different format so that they can be added to the sensor data as
+  # "measurements". Also provide each gap pair (i.e. from and to) with an ID so they can be matched
+  # later on.
+  prepared_gaps <- gaps %>%
+    dplyr::select({{ by }}, .data$from, .data$to) %>%
+    dplyr::mutate(gap_id = dplyr::row_number()) %>%
+    dplyr::mutate(from = .data$from + 5) %>%
+    tidyr::pivot_longer(cols = c(.data$from, .data$to),
+                        names_to = "gap_type",
+                        values_to = "time") %>%
+    rlang::exec(.fn = dplyr::mutate, !!!fill)
+
+  data %>%
+    # Add gaps to the data
+    dplyr::bind_rows(prepared_gaps) %>%
+    # Sort just to be sure
+    dplyr::arrange(dplyr::across(c({{ by }}, .data$time))) %>%
+    # Then, nest confidence and type by time to calculate the "lag - 2" for the end of gaps "to".
+    # This is necessary because if two measurements at the same time were present just before the
+    # gap, they should also both continue after the gap.
+    #
+    # Note: The code below is equivalent to
+    # group_by(participant_id, time, gap_type, gap_id) %>%
+    # nest() %>%
+    # ungroup() %>%
+    # or
+    # group_by(participant_id, time) %>%
+    # nest(data = c(confidence, type)) %>%
+    # ungroup() %>%
+    #
+    # This means that if there is a (or multiple) measurement of the same participant at the same
+    # time and also the start or end of a gap (gap_type "from" or "to"), there will two groups: one
+    # with the measurements that are not the gap, and one with the gap measurement, while both
+    # having the same participant_id and time stamp. For example:
+    #
+    # participant_id    time      type    gap_type  gap_id
+    # 12345             10:00:00  STILL   NA        NA
+    # 12345             10:00:00  ACTIVE  NA        NA
+    # 12345             10:00:00  GAP     from      1
+    #
+    # Nesting then results in the following:
+    # participant_id    time    gap_type  gap_id  data
+    # 12345          10:00:00   NA        NA      <tibble [2 × 1]>
+    # 12345          10:00:00   from      1       <tibble [1 × 1]>
+    #
+    # Creating the from_lag column as below, it would mean that row 2 would get the data  from row
+    # 1, which is intended behaviour. If all 3 rows would be nested in the same tibble, we would get
+    # the measurement before that in from_lag, even though there were more recent measurements.
+    # Besides, any other nesting would inevitably include gap_type and gap_id in the nested tibble,
+    # breaking the code.
+    tidyr::nest(data = !c({{ by }}, .data$time, .data$gap_id, .data$gap_type)) %>%
+    # Next, calculate the lag from the "to" column on the nested data. This are simply the
+    # activities that occurred last before the start of the gap. It is put in a new column
+    # ("from_lag") to preserve it for the next lag phase.
+    dplyr::mutate(from_lag = ifelse(!is.na(.data$gap_type) & .data$gap_type == "from",
+                                    dplyr::lag(.data$data),
+                                    NA)) %>%
+    # Group the data by gap_id to ensure "to" always lags from "from" and not some other measurement
+    # in case it somehow came in between the start and end of the gap.
+    dplyr::group_by(.data$gap_id) %>%
+    # Only if the row signals the end of the measurements: modify data (i.e. the confidence and type)
+    # with the lagged from_lag (i.e. the from_lag of "from"). Else, leave data intact.
+    dplyr::mutate(data = ifelse(!is.na(.data$gap_type) & .data$gap_type == "to",
+                         dplyr::lag(.data$from_lag),
+                         .data$data)) %>%
+    # Lastly, unnest the data to get the original (and modified for "to") confidence and type, and
+    # ungroup and cleanup
+    tidyr::unnest(.data$data) %>%
+    dplyr::ungroup() %>%
+    dplyr::select(-c(.data$from_lag, .data$gap_id, .data$gap_type))
 }
