@@ -63,13 +63,13 @@ data \%>\%
 # in the group.
 data \%>\%
   dplyr::mutate(datetime = as.POSIXct(datetime)) \%>\%
-    dplyr::mutate(lead = dplyr::lead(datetime)) \%>\%
-    bin_data(
-      start_time = datetime,
-      end_time = lead,
-      by = 1800L,
-      fixed = FALSE
-    )
+  dplyr::mutate(lead = dplyr::lead(datetime)) \%>\%
+  bin_data(
+    start_time = datetime,
+    end_time = lead,
+    by = 1800L,
+    fixed = FALSE
+  )
 
 # More complicated data for showcasing grouping:
 data <- tibble::tibble(
@@ -85,6 +85,7 @@ data <- tibble::tibble(
 # binned_intervals also takes into account the prior grouping structure
 out <- data \%>\%
   dplyr::mutate(datetime = as.POSIXct(datetime)) \%>\%
+  dplyr::group_by(participant_id) \%>\%
   dplyr::mutate(lead = dplyr::lead(datetime)) \%>\%
   dplyr::group_by(participant_id, type) \%>\%
   bin_data(
@@ -95,14 +96,19 @@ out <- data \%>\%
 print(out)
 
 # To get the duration for each bin (note to change the variable names in sum):
-purrr::map_dbl(out$bin_data, ~ sum(.x$lead - .x$datetime, na.rm = TRUE))
+purrr::map_dbl(
+  out$bin_data,
+  ~ sum(as.double(.x$lead) - as.double(.x$datetime),
+    na.rm = TRUE
+  )
+)
 
 # Or:
 out \%>\%
-  tidyr::unnest(bin_data) \%>\%
+  tidyr::unnest(bin_data, keep_empty = TRUE) \%>\%
   dplyr::mutate(duration = .data$lead - .data$datetime) \%>\%
-  dplyr::group_by(date, .add = TRUE) \%>\%
-  dplyr::summarise(duration = sum(.data$duration), .groups = "drop")
+  dplyr::group_by(bin, .add = TRUE) \%>\%
+  dplyr::summarise(duration = sum(.data$duration, na.rm = TRUE), .groups = "drop")
 }
 \seealso{
 \code{\link[mpathsenser]{link_gaps}} for linking gaps to data.

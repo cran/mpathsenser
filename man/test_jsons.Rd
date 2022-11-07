@@ -9,7 +9,7 @@ test_jsons(
   files = NULL,
   db = NULL,
   recursive = TRUE,
-  parallel = FALSE
+  parallel = deprecated()
 )
 }
 \arguments{
@@ -17,27 +17,38 @@ test_jsons(
 
 \item{files}{Alternatively, a character list of the input files.}
 
-\item{db}{A mpathsenser database connection (optional). If provided, will be used to check
-which files are already in the database and check only those JSON files which are not.}
+\item{db}{A mpathsenser database connection (optional). If provided, will be used to check which
+files are already in the database and check only those JSON files which are not.}
 
 \item{recursive}{Should the listing recurse into directories?}
 
 \item{parallel}{A logical value whether you want to check in parallel. Useful when there are a
 lot of files. If you have already used \code{\link[future]{plan}}, you can leave this parameter
-to \code{FALSE}.}
+to \code{FALSE}.
+
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}} As functions should not modify the user's workspace,
+directly toggling parallel support has been deprecated. Please use
+\code{\link[future]{plan}("multisession")} before calling this function to use multiple
+workers.}
 }
 \value{
-A message indicating whether there were any issues and a character vector of the file
-names that need to be fixed. If there were no issues, no result is returned.
+A message indicating whether there were any issues and a character vector of
+the file names that need to be fixed. If there were no issues, an invisible empty string is
+returned.
 }
 \description{
 \ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#stable}{\figure{lifecycle-stable.svg}{options: alt='[Stable]'}}}{\strong{[Stable]}}
 }
-\section{Progress}{
+\section{Parallel}{
+ This function supports parallel processing in the sense that it is able to
+distribute it's computation load among multiple workers. To make use of this functionality, run
+\code{\link[future]{plan}("multisession")} before calling this function.
+}
 
-You can be updated of the progress by this function by using the
+\section{Progress}{
+ You can be updated of the progress of this function by using the
 \code{\link[progressr]{progress}} package. See \code{progressr}'s
-\href{https://cran.r-project.org/package=progressr/vignettes/progressr-intro.html}{vignette}
-on how to subscribe to these updates.
+\href{https://cran.r-project.org/package=progressr/vignettes/progressr-intro.html}{vignette} on
+how to subscribe to these updates.
 }
 

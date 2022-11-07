@@ -1,25 +1,24 @@
-#' Generic helper function from extracting data from an m-Path Sense database
+#' Extract data from an m-Path Sense database
 #'
-#' @description
-#' `r lifecycle::badge("stable")`
+#' @description `r lifecycle::badge("stable")`
 #'
-#' This is a generic function to help extract data from an m-Path sense database. For some sensors
-#' that require a bit more pre-processing, such as app usage and screen time, more specialised
-#' functions are available (e.g. \code{\link[mpathsenser]{get_app_usage}} and
+#' This is a convenience function to help extract data from an m-Path sense database. For some
+#' sensors that require a bit more pre-processing, such as app usage and screen time, more
+#' specialised functions are available (e.g. \code{\link[mpathsenser]{app_usage}} and
 #' \code{\link[mpathsenser]{screen_duration}}).
 #'
 #' @param db A database connection to an m-Path Sense database.
 #' @param sensor The name of a sensor. See \link[mpathsenser]{sensors} for a list of available
-#' sensors.
+#'   sensors.
 #' @param participant_id A character string identifying a single participant. Use
-#' \code{\link[mpathsenser]{get_participants}} to retrieve all participants from the database.
-#' Leave empty to get data for all participants.
+#'   \code{\link[mpathsenser]{get_participants}} to retrieve all participants from the database.
+#'   Leave empty to get data for all participants.
 #' @param start_date Optional search window specifying date where to begin search. Must be
-#' convertible to date using \link[base]{as.Date}. Use \link[mpathsenser]{first_date} to find the
-#' date of the first entry for a participant.
+#'   convertible to date using \link[base]{as.Date}. Use \link[mpathsenser]{first_date} to find the
+#'   date of the first entry for a participant.
 #' @param end_date Optional search window specifying date where to end search. Must be convertible
-#' to date using \link[base]{as.Date}. Use \link[mpathsenser]{last_date} to find the date of the
-#' last entry for a participant.
+#'   to date using \link[base]{as.Date}. Use \link[mpathsenser]{last_date} to find the date of the
+#'   last entry for a participant.
 #'
 #' @return A lazy \code{\link[dplyr]{tbl}} containing the requested data.
 #' @export
@@ -36,21 +35,18 @@
 #' get_data(db, "Accelerometer", "12345", "2021-01-01", "2021-01-05")
 #' }
 get_data <- function(db, sensor, participant_id = NULL, start_date = NULL, end_date = NULL) {
-  if (!DBI::dbIsValid(db)) {
-    stop("Database connection is not valid")
-  }
-  if (!is.character(sensor) | length(sensor) == 0 | length(sensor) > 1) {
-    stop("sensor should be a character vector of size 1")
-  }
-  if (!(sensor %in% sensors) & !(sensor %in% tolower(sensors))) {
-    stop("this sensor does not exist")
-  }
+  check_db(db)
+  check_sensors(sensor, n = 1)
+  check_arg(participant_id, type = c("character", "integerish"), n = 1, allow_null = TRUE)
+  check_arg(sensor, "character", n = 1)
+  check_arg(start_date, type = c("character", "POSIXt"), n = 1, allow_null = TRUE)
+  check_arg(end_date, type = c("character", "POSIXt"), n = 1, allow_null = TRUE)
 
   out <- dplyr::tbl(db, sensor)
 
   if (!is.null(participant_id)) {
     p_id <- as.character(participant_id)
-    out <- dplyr::filter(out, participant_id == p_id)
+    out <- filter(out, participant_id == p_id)
   }
 
   maybe_date <- function(x) {
@@ -58,11 +54,11 @@ get_data <- function(db, sensor, participant_id = NULL, start_date = NULL, end_d
   }
 
   if (!is.null(start_date) && maybe_date(start_date)) {
-    out <- dplyr::filter(out, date >= start_date)
+    out <- filter(out, date >= start_date)
   }
 
   if (!is.null(end_date) && maybe_date(end_date)) {
-    out <- dplyr::filter(out, date <= end_date)
+    out <- filter(out, date <= end_date)
   }
 
   out
@@ -89,6 +85,9 @@ get_data <- function(db, sensor, participant_id = NULL, start_date = NULL, end_d
 #' first_date(db, "Accelerometer", "12345")
 #' }
 first_date <- function(db, sensor, participant_id = NULL) {
+  check_db(db)
+  check_arg(sensor, "character", n = 1)
+
   query <- paste0("SELECT MIN(date) AS `min` FROM `", sensor, "`")
 
   if (!is.null(participant_id)) {
@@ -118,6 +117,9 @@ first_date <- function(db, sensor, participant_id = NULL) {
 #' first_date(db, "Accelerometer", "12345")
 #' }
 last_date <- function(db, sensor, participant_id = NULL) {
+  check_db(db)
+  check_arg(sensor, c("character", "integerish"), n = 1, allow_null = TRUE)
+
   query <- paste0("SELECT MAX(date) AS `max` FROM `", sensor, "`")
 
   if (!is.null(participant_id)) {
@@ -135,19 +137,21 @@ last_date <- function(db, sensor, participant_id = NULL) {
 #' this package, start and end dates are not used since installed apps are assumed to be fixed
 #' throughout the study.
 #'
-#' @param db A database connection to a mpathsenser database.
+#' @param db A database connection to an mpathsenser database.
 #' @param participant_id A character string identifying a single participant. Use
 #' \code{\link[mpathsenser]{get_participants}} to retrieve all participants from the database.
 #' Leave empty to get data for all participants.
 #'
 #' @return A tibble containing app names.
 #' @export
-get_installed_apps <- function(db, participant_id = NULL) {
+installed_apps <- function(db, participant_id = NULL) {
+  check_db(db)
+
   get_data(db, "InstalledApps", participant_id) %>%
-    dplyr::filter(!is.na(app)) %>%
-    dplyr::distinct(app) %>%
-    dplyr::arrange(app) %>%
-    dplyr::collect()
+    filter(!is.na(.data$app)) %>%
+    distinct(.data$app) %>%
+    arrange(.data$app) %>%
+    collect()
 }
 
 
@@ -194,30 +198,13 @@ get_installed_apps <- function(db, participant_id = NULL) {
 #' app_category("net.oneplus.weather")
 app_category <- function(name, num = 1, rate_limit = 5, exact = TRUE) {
   # Check if required packages are available
-  if (!requireNamespace("curl", quietly = TRUE)) {
-    stop(paste0(
-      "package curl is needed for this function to work. ",
-      "Please install it using install.packages(\"curl\")"
-    ),
-    call. = FALSE
-    )
-  }
-  if (!requireNamespace("httr", quietly = TRUE)) {
-    stop(paste0(
-      "package httr is needed for this function to work. ",
-      "Please install it using install.packages(\"httr\")"
-    ),
-    call. = FALSE
-    )
-  }
-  if (!requireNamespace("rvest", quietly = TRUE)) {
-    stop(paste0(
-      "package rvest is needed for this function to work. ",
-      "Please install it using install.packages(\"rvest\")"
-    ),
-    call. = FALSE
-    )
-  }
+  ensure_suggested_package("curl")
+  ensure_suggested_package("httr")
+  ensure_suggested_package("rvest")
+  check_arg(name, "character")
+  check_arg(num, "integerish", n = 1)
+  check_arg(rate_limit, "double", n = 1)
+  check_arg(exact, "logical", n = 1)
 
   res <- data.frame(app = name, package = rep(NA, length(name)), genre = rep(NA, length(name)))
 
@@ -248,14 +235,16 @@ app_category_impl <- function(name, num, exact) {
 
   query <- paste0("https://play.google.com/store/search?q=", name, "&c=apps")
 
-  ua <- httr::user_agent("Mozilla/5.0 (Windows NT 10.0; WOW64; rv:70.0) Gecko/20100101 Firefox/70.0")
+  ua <- httr::user_agent(
+    "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:70.0) Gecko/20100101 Firefox/70.0"
+  )
 
   session <- httr::GET(query, ua)
 
   if (!httr::http_error(session)) {
     session <- httr::content(session)
   } else {
-    return(list(package = NA, genre = NA))
+    return(list(package = NA, genre = NA)) # nocov
   }
 
   # Get the link
@@ -271,7 +260,10 @@ app_category_impl <- function(name, num, exact) {
   # Check if the name occurs in any of the package names
   # If so, select the num (usually first) link from this list
   if (exact) {
-    name_detected <- vapply(links, function(x) grepl(paste0("\\.", name, "$/i"), x), FUN.VALUE = logical(1))
+    name_detected <- vapply(links,
+      function(x) grepl(paste0("\\.", tolower(name), "$"), tolower(x)),
+      FUN.VALUE = logical(1)
+    )
     if (any(name_detected)) {
       links <- links[name_detected]
       link <- links[num]
@@ -296,7 +288,7 @@ app_category_impl <- function(name, num, exact) {
   if (!httr::http_error(session)) {
     session <- httr::content(session)
   } else {
-    return(list(package = NA, genre = NA))
+    return(list(package = NA, genre = NA)) # nocov
   }
 
   # Extract the genre and return results
@@ -308,7 +300,7 @@ app_category_impl <- function(name, num, exact) {
   list(package = gsub("^.+?(?<=\\?id=)", "", link, perl = TRUE), genre = genre)
 }
 
-
+# nocov start
 #' Get app usage per hour
 #'
 #' @description
@@ -321,50 +313,54 @@ app_category_impl <- function(name, num, exact) {
 #' @param by Either 'Total', 'Hour', or 'Day' indicating how to summarise the results.
 #'
 #' @return A data frame containing a column 'app' and a column 'usage' for the hourly app usage.
-#' @export
-get_app_usage <- function(db,
-                          participant_id = NULL,
-                          start_date = NULL,
-                          end_date = NULL,
-                          by = c("Total", "Day", "Hour")) {
-  if (!is.null(start_date) & is.null(end_date)) {
+#' @keywords internal
+app_usage <- function(db,
+                      participant_id = NULL,
+                      start_date = NULL,
+                      end_date = NULL,
+                      by = c("Total", "Day", "Hour")) {
+  check_db(db)
+  check_arg(by, "character", n = 1)
+
+  if (!is.null(start_date) && is.null(end_date)) {
     end_date <- start_date
   }
   data <- get_data(db, "AppUsage", participant_id, start_date, end_date) %>%
-    dplyr::select(date, time, app, usage) %>%
-    dplyr::collect() %>%
-    tidyr::drop_na(app, usage) %>%
-    dplyr::group_by(date, app)
+    mutate(time = paste(.data$date, .data$time)) %>%
+    select("time", "app", "usage") %>%
+    collect() %>%
+    drop_na("app", "usage")
+
 
   if (is.null(by)) {
     data <- data %>%
-      dplyr::slice(dplyr::n()) %>%
-      dplyr::mutate(usage = usage / 60 / 60)
-  } else if (by[1] == "Total" | by[1] == "total") {
+      slice(n()) %>%
+      mutate(usage = .data$usage / 60 / 60)
+  } else if (by[1] == "Total" || by[1] == "total") {
     data <- data %>%
-      dplyr::slice(dplyr::n()) %>%
-      dplyr::mutate(usage = usage / 60 / 60) %>%
-      dplyr::group_by(app) %>%
-      dplyr::summarise(usage = round(mean(usage), 2), .groups = "drop")
-  } else if (by[1] == "Hour" | by[1] == "hour") {
+      slice(n()) %>%
+      mutate(usage = .data$usage / 60 / 60) %>%
+      group_by(.data$app) %>%
+      summarise(usage = round(mean(.data$usage), 2), .groups = "drop")
+  } else if (by[1] == "Hour" || by[1] == "hour") {
     data <- data %>%
-      dplyr::mutate(prev_usage = dplyr::lag(usage, default = 0)) %>%
-      dplyr::mutate(hour = substr(time, 1, 2)) %>%
-      dplyr::group_by(date, app) %>%
-      dplyr::mutate(duration = usage - prev_usage) %>%
-      dplyr::group_by(hour, date, app) %>%
-      dplyr::summarise(usage = usage / 60 / 60, .groups = "drop") %>%
-      dplyr::mutate(hour = as.numeric(hour)) %>%
-      tidyr::complete(hour = 0:23, app, fill = list(n = 0))
-  } else if (by[1] == "Day" | by[1] == "day") {
+      mutate(prev_usage = lag(.data$usage, default = 0)) %>%
+      mutate(hour = substr(.data$time, 1, 2)) %>%
+      group_by(.data$date, .data$app) %>%
+      mutate(duration = .data$usage - .data$prev_usage) %>%
+      group_by(.data$hour, .data$date, .data$app) %>%
+      summarise(usage = .data$usage / 60 / 60, .groups = "drop") %>%
+      mutate(hour = as.numeric(.data$hour)) %>%
+      complete(hour = 0:23, .data$app, fill = list(n = 0))
+  } else if (by[1] == "Day" || by[1] == "day") {
     data <- data %>%
-      dplyr::slice(dplyr::n()) %>%
-      dplyr::mutate(usage = round(usage / 60 / 60, 2))
+      slice(n()) %>%
+      mutate(usage = round(.data$usage / 60 / 60, 2))
   } else {
     # Default case
     data <- data %>%
-      dplyr::slice(dplyr::n()) %>%
-      dplyr::mutate(usage = usage / 60 / 60)
+      slice(n()) %>%
+      mutate(usage = .data$usage / 60 / 60)
   }
   return(data)
 }
@@ -385,7 +381,7 @@ get_app_usage <- function(db,
 #'
 #' @return A tibble containing a column 'activity' and a column 'duration' for the hourly
 #' activity duration.
-#' @export
+#' @keywords internal
 activity_duration <- function(data = NULL,
                               db = NULL,
                               participant_id = NULL,
@@ -394,53 +390,57 @@ activity_duration <- function(data = NULL,
                               start_date = NULL,
                               end_date = NULL,
                               by = c("Total", "Day", "Hour")) {
-  if (is.null(data) & is.null(db)) {
-    stop("Either data or db must be specified")
+  check_arg(data, "data.frame", allow_null = TRUE)
+  check_db(db, allow_null = TRUE)
+  check_arg(confidence, "numeric", n = 1)
+  check_arg(direction, "character", n = 1)
+  check_arg(by, "character", n = 1, allow_null = TRUE)
+
+  if (is.null(data) && is.null(db)) {
+    abort("Either data or db must be specified")
   }
 
-  if (!is.null(data) & !is.null(db)) {
-    stop("Either data or db must be specified, but not both")
+  if (!is.null(data) && !is.null(db)) {
+    abort("Either data or db must be specified, but not both")
   }
 
   if (!is.null(data)) {
 
   } else {
     data <- get_data(db, "Activity", participant_id, start_date, end_date) %>%
-      dplyr::filter(confidence >= confidence) %>%
+      filter(.data$confidence >= .data$confidence) %>%
       compress_activity() %>%
-      dplyr::mutate(datetime = paste(date, time))
+      mutate(datetime = paste(.data$date, .data$time))
   }
 
-  if (tolower(direction) == "forward" | tolower(direction) == "forwards") {
+  if (tolower(direction) == "forward" || tolower(direction) == "forwards") {
     data <- data %>%
-      dplyr::mutate(duration = STRFTIME("%s", dplyr::lead(datetime)) - STRFTIME("%s", datetime))
-  } else if (tolower(direction) == "backward" | tolower(direction) == "backwards") {
+      mutate(duration = strftime("%s", lead(.data$datetime)) - strftime("%s", .data$datetime))
+  } else if (tolower(direction) == "backward" || tolower(direction) == "backwards") {
     data <- data %>%
-      dplyr::mutate(duration = STRFTIME("%s", datetime) - STRFTIME("%s", dplyr::lag(datetime)))
+      mutate(duration = strftime("%s", .data$datetime) - strftime("%s", lag(.data$datetime)))
   } else {
-    stop("Invalid direction")
+    abort("Invalid direction")
   }
 
-  if (is.null(by) || missing(by) || by[1] == "total" | by[1] == "Total") {
-    data <- data %>%
-      dplyr::group_by(type)
+  if (is.null(by) || missing(by) || by[1] == "total" || by[1] == "Total") {
+    data <- group_by(data, .data$type)
   } else if (by[1] == "Hour") {
     data <- data %>%
-      dplyr::mutate(hour = substr(time, 1, 2)) %>%
-      dplyr::group_by(type, date, hour)
+      mutate(hour = substr(.data$time, 1, 2)) %>%
+      group_by(.data$type, .data$date, .data$hour)
   } else if (by[1] == "Day") {
-    data <- data %>%
-      dplyr::group_by(type, date)
+    data <- group_by(data, .data$type, .data$date)
   } else {
     # Default case
-    data <- data %>%
-      dplyr::group_by(type)
+    data <- group_by(data, .data$type)
   }
 
   data %>%
-    dplyr::summarise(duration = sum(duration, na.rm = TRUE), .groups = "drop") %>%
-    dplyr::collect()
+    summarise(duration = sum(.data$duration, na.rm = TRUE), .groups = "drop") %>%
+    collect()
 }
+# nocov end
 
 #' Get the device info for one or more participants
 #'
@@ -453,15 +453,16 @@ activity_duration <- function(data = NULL,
 #' @export
 device_info <- function(db, participant_id = NULL) {
   get_data(db, "Device", participant_id = participant_id) %>%
-    dplyr::select(participant_id, device_id:platform) %>%
-    dplyr::distinct() %>%
-    dplyr::collect()
+    select("participant_id", "device_id":"platform") %>%
+    distinct() %>%
+    collect()
 }
 
+# nocov start
 compress_activity <- function(data, direction = "forward") {
   data %>%
-    dbplyr::window_order(date, time) %>%
-    dplyr::filter(!(dplyr::lead(type) == type & dplyr::lag(type) == type))
+    arrange("date", "time") %>%
+    filter(!(lead(.data$type) == .data$type & lag(.data$type) == .data$type))
 }
 
 #' Screen duration by hour or day
@@ -478,42 +479,50 @@ compress_activity <- function(data, direction = "forward") {
 #' @return A tibble with either 'hour' and 'duration' columns or 'date' and 'duration' columns
 #' depending on the \code{by} argument. Alternatively, if no \code{by} is specified, a remote
 #' tibble is returned with the date, time, and duration since the previous measurement.
-#' @export
+#' @keywords internal
 screen_duration <- function(db,
                             participant_id,
                             start_date = NULL,
                             end_date = NULL,
                             by = c("Hour", "Day")) {
+  lifecycle::signal_stage("experimental", "screen_duration()")
+  check_db(db)
+  check_arg(by, "character", n = 1, allow_null = TRUE)
+
   out <- get_data(db, "Screen", participant_id, start_date, end_date) %>%
-    dplyr::filter(screen_event != "SCREEN_ON") %>%
-    dplyr::mutate(datetime = paste(date, time)) %>%
-    dbplyr::window_order(participant_id, datetime) %>%
-    dplyr::distinct(participant_id, date, time, datetime, screen_event) %>%
-    dplyr::mutate(next_event = dplyr::lead(screen_event, n = 1)) %>%
-    dplyr::mutate(next_time = dplyr::lead(datetime, n = 1)) %>%
-    dplyr::filter(screen_event == "SCREEN_UNLOCKED" & next_event == "SCREEN_OFF") %>%
-    dplyr::mutate(duration = strftime("%s", next_time) - strftime("%s", datetime))
+    filter(.data$screen_event != "SCREEN_ON") %>%
+    mutate(datetime = paste(.data$date, .data$time)) %>%
+    arrange(.data$participant_id, .data$datetime) %>%
+    distinct(
+      .data$participant_id,
+      .data$date,
+      .data$time,
+      .data$datetime,
+      .data$screen_event
+    ) %>%
+    mutate(next_event = lead(.data$screen_event, n = 1)) %>%
+    mutate(next_time = lead(.data$datetime, n = 1)) %>%
+    filter(.data$screen_event == "SCREEN_UNLOCKED" & .data$next_event == "SCREEN_OFF") %>%
+    mutate(duration = strftime("%s", .data$next_time) - strftime("%s", .data$datetime))
 
   if (is.null(by) || missing(by)) {
-    out <- out %>%
-      dplyr::select(date, time, duration)
+    out <- select(out, "date", "time", "duration")
   } else if (by[1] == "Hour") {
     out <- out %>%
-      dplyr::mutate(hour = strftime("%H", time)) %>%
-      dplyr::group_by(hour) %>%
-      dplyr::summarise(duration = mean(duration, na.rm = TRUE) / 60) %>%
-      dplyr::collect() %>%
-      dplyr::mutate(hour = as.numeric(hour)) %>%
-      tidyr::complete(hour = 0:23, fill = list(duration = 0))
+      mutate(hour = strftime("%H", .data$time)) %>%
+      group_by(.data$hour) %>%
+      summarise(duration = mean(.data$duration, na.rm = TRUE) / 60) %>%
+      collect() %>%
+      mutate(hour = as.numeric(.data$hour)) %>%
+      complete(hour = 0:23, fill = list(duration = 0))
   } else if (by[1] == "Day") {
     out <- out %>%
-      dplyr::group_by(date) %>%
-      dplyr::summarise(duration = sum(duration, na.rm = TRUE) / 60 / 60) %>%
-      dplyr::collect()
+      group_by(.data$date) %>%
+      summarise(duration = sum(.data$duration, na.rm = TRUE) / 60 / 60) %>%
+      collect()
   } else {
     # Default case
-    out <- out %>%
-      dplyr::select(date, time, duration)
+    out <- select(out, "date", "time", "duration")
   }
   return(out)
 }
@@ -529,42 +538,45 @@ screen_duration <- function(db,
 #'
 #' @return In case grouping is by the total amount, returns a single numeric value. For date and
 #' hour grouping returns a tibble with columns 'date' or 'hour' and the number of screen on's 'n'.
-#' @export
+#' @keywords internal
 n_screen_on <- function(db,
                         participant_id,
                         start_date = NULL,
                         end_date = NULL,
                         by = c("Total", "Hour", "Day")) {
-  lifecycle::signal_stage("experimental", "moving_average()")
+  lifecycle::signal_stage("experimental", "n_screen_on()")
+
+  check_db(db)
+  check_arg(by, "character", n = 1, allow_null = TRUE)
 
   out <- get_data(db, "Screen", participant_id, start_date, end_date) %>%
-    dplyr::select(-c(measurement_id, participant_id)) %>%
-    dplyr::filter(screen_event == "SCREEN_ON")
+    select(-c("measurement_id", "participant_id")) %>%
+    filter(.data$screen_event == "SCREEN_ON")
 
   if (is.null(by)) {
     out <- out %>%
-      dplyr::summarise(n = dplyr::n()) %>%
-      dplyr::pull(n)
-  } else if (by[1] == "Total" | by[1] == "total") {
+      summarise(n = n()) %>%
+      pull("n")
+  } else if (by[1] == "Total" || by[1] == "total") {
     out <- out %>%
-      dplyr::summarise(n = dplyr::n()) %>%
-      dplyr::pull(n)
-  } else if (by[1] == "Hour" | by[1] == "hour") {
+      summarise(n = n()) %>%
+      pull("n")
+  } else if (by[1] == "Hour" || by[1] == "hour") {
     out <- out %>%
-      dplyr::mutate(hour = STRFTIME("%H", time)) %>%
-      dplyr::count(hour) %>%
-      dplyr::collect() %>%
-      dplyr::mutate(hour = as.numeric(hour)) %>%
-      tidyr::complete(hour = 0:23, fill = list(n = 0))
-  } else if (by[1] == "Day" | by[1] == "day") {
+      mutate(hour = strftime("%H", .data$time)) %>%
+      dplyr::count(.data$hour) %>%
+      collect() %>%
+      mutate(hour = as.numeric(.data$hour)) %>%
+      complete(hour = 0:23, fill = list(n = 0))
+  } else if (by[1] == "Day" || by[1] == "day") {
     out <- out %>%
-      dplyr::count(date) %>%
-      dplyr::collect()
+      dplyr::count(.data$date) %>%
+      collect()
   } else {
     # Default case
     out <- out %>%
-      dplyr::summarise(n = dplyr::n()) %>%
-      dplyr::pull(n)
+      summarise(n = n()) %>%
+      pull("n")
   }
   return(out)
 }
@@ -581,42 +593,45 @@ n_screen_on <- function(db,
 #' @return In case grouping is by the total amount, returns a single numeric value. For date and
 #' hour grouping returns a tibble with columns 'date' or 'hour' and the number of screen unlocks
 #' 'n'.
-#' @export
+#' @keywords internal
 n_screen_unlocks <- function(db,
                              participant_id,
                              start_date = NULL,
                              end_date = NULL,
                              by = c("Total", "Hour", "Day")) {
-  lifecycle::signal_stage("experimental", "moving_average()")
+  lifecycle::signal_stage("experimental", "n_screen_unlocks()")
+
+  check_db(db)
+  check_arg(by, "character", n = 1, allow_null = TRUE)
 
   out <- get_data(db, "Screen", participant_id, start_date, end_date) %>%
-    dplyr::select(-c(measurement_id, participant_id)) %>%
-    dplyr::filter(screen_event == "SCREEN_UNLOCKED")
+    select(-c("measurement_id", "participant_id")) %>%
+    filter(.data$screen_event == "SCREEN_UNLOCKED")
 
   if (is.null(by)) {
     out <- out %>%
-      dplyr::summarise(n = dplyr::n()) %>%
-      dplyr::pull(n)
-  } else if (by[1] == "Total" | by[1] == "total") {
+      summarise(n = n()) %>%
+      pull("n")
+  } else if (by[1] == "Total" || by[1] == "total") {
     out <- out %>%
-      dplyr::summarise(n = dplyr::n()) %>%
-      dplyr::pull(n)
-  } else if (by[1] == "Hour" | by[1] == "hour") {
+      summarise(n = n()) %>%
+      pull("n")
+  } else if (by[1] == "Hour" || by[1] == "hour") {
     out <- out %>%
-      dplyr::mutate(hour = STRFTIME("%H", time)) %>%
-      dplyr::count(hour) %>%
-      dplyr::collect() %>%
-      dplyr::mutate(hour = as.numeric(hour)) %>%
-      tidyr::complete(hour = 0:23, fill = list(n = 0))
-  } else if (by[1] == "Day" | by[1] == "day") {
+      mutate(hour = strftime("%H", .data$time)) %>%
+      dplyr::count(.data$hour) %>%
+      collect() %>%
+      mutate(hour = as.numeric(.data$hour)) %>%
+      complete(hour = 0:23, fill = list(n = 0))
+  } else if (by[1] == "Day" || by[1] == "day") {
     out <- out %>%
-      dplyr::count(date) %>%
-      dplyr::collect()
+      dplyr::count(.data$date) %>%
+      collect()
   } else {
     # Default case
     out <- out %>%
-      dplyr::summarise(n = dplyr::n()) %>%
-      dplyr::pull(n)
+      summarise(n = n()) %>%
+      pull("n")
   }
   return(out)
 }
@@ -632,52 +647,73 @@ n_screen_unlocks <- function(db,
 #' @inheritParams get_data
 #'
 #' @return A tibble with the 'date', 'hour', and the number of 'steps'.
-#' @export
+#' @keywords internal
 step_count <- function(db, participant_id = NULL, start_date = NULL, end_date = NULL) {
   lifecycle::signal_stage("experimental", "step_count()")
+  check_db(db)
 
   get_data(db, "Pedometer", participant_id, start_date, end_date) %>%
-    dplyr::mutate(hour = STRFTIME("%H", time)) %>%
-    dplyr::group_by(participant_id, date, hour) %>%
-    dbplyr::window_order(time, step_count) %>%
-    dplyr::mutate(next_count = dplyr::lead(step_count, default = NA)) %>%
-    dplyr::mutate(step_count = ifelse(step_count > next_count, NA, step_count)) %>%
-    dplyr::mutate(steps = next_count - step_count) %>%
-    dplyr::group_by(participant_id, date, hour) %>%
-    dplyr::summarise(steps = sum(steps, na.rm = TRUE), .groups = "drop") %>%
-    dplyr::collect()
+    mutate(hour = strftime("%H", .data$time)) %>%
+    group_by(.data$participant_id, .data$date, .data$hour) %>%
+    window_order(.data$time, .data$step_count) %>%
+    mutate(next_count = lead(.data$step_count, default = NA)) %>%
+    mutate(step_count = ifelse(.data$step_count > .data$next_count, NA, .data$step_count)) %>%
+    mutate(steps = .data$next_count - .data$step_count) %>%
+    group_by(.data$participant_id, .data$date, .data$hour) %>%
+    summarise(steps = sum(.data$steps, na.rm = TRUE), .groups = "drop") %>%
+    collect()
 }
+# nocov end
 
 #' Moving average for values in an mpathsenser database
 #'
-#' #' @description
-#' `r lifecycle::badge("experimental")`
+#' @description `r lifecycle::badge("experimental")`
 #'
 #' @inheritParams get_data
-#' @param participant_id A character string identifying a single participant. Use get_participants
-#' to retrieve all participants from the database.
-#' @param ... Unquoted names of columns of the \code{sensor} table to average over.
-#' @param n The number of observations to average over.
+#' @param cols Character vectors of the columns in the \code{sensor} table to average over.
+#' @param n The number of seconds to average over. The index of the result will be centered compared
+#'   to the rolling window of observations.
+#' @param participant_id A character vector identifying one or multiple participants.
 #'
 #' @return A tibble with the same columns as the input, modified to be a moving average.
 #' @export
 #'
 #' @examples
 #' \dontrun{
-#' get_moving_average(db, "Light", "12345", mean_lux, max_lux, n = 5)
+#' path <- system.file("testdata", "test.db", package = "mpathsenser")
+#' db <- open_db(NULL, path)
+#' moving_average(
+#'   db = db,
+#'   sensor = "Light",
+#'   cols = c("mean_lux", "max_lux"),
+#'   n = 5, # seconds
+#'   participant_id = "12345"
+#' )
+#' close_db(db)
 #' }
-moving_average <- function(db, sensor, participant_id, ..., n, start_date = NULL, end_date = NULL) {
+moving_average <- function(db,
+                           sensor,
+                           cols,
+                           n,
+                           participant_id,
+                           start_date = NULL,
+                           end_date = NULL) {
   lifecycle::signal_stage("experimental", "moving_average()")
-
-  cols <- dplyr::ensyms(...)
+  check_db(db)
+  check_sensors(sensor, n = 1)
+  check_arg(participant_id, c("character", "integerish"))
+  check_arg(start_date, c("character", "POSIXt"), n = 1, allow_null = TRUE)
+  check_arg(end_date, c("character", "POSIXt"), n = 1, allow_null = TRUE)
 
   # SELECT
-  query <- "SELECT datetime, "
+  query <- "SELECT participant_id, datetime, "
 
   # Calculate moving average
   avgs <- lapply(cols, function(x) {
     paste0(
-      "avg(`", x, "`) OVER (", "ORDER BY CAST (strftime('%s', datetime) AS INT) ",
+      "avg(`", x, "`) OVER (",
+      "PARTITION BY `participant_id` ",
+      "ORDER BY CAST (strftime('%s', datetime) AS INT) ",
       "RANGE BETWEEN ", n / 2, " PRECEDING ", "AND ", n / 2, " FOLLOWING", ") AS ", x
     )
   })
@@ -687,14 +723,18 @@ moving_average <- function(db, sensor, participant_id, ..., n, start_date = NULL
 
   # FROM
   query <- paste0(
-    query, " FROM (SELECT `date` || 'T' || `time` AS `datetime`, ",
+    query, " FROM (SELECT participant_id, `date` || 'T' || `time` AS `datetime`, ",
     paste0(cols, collapse = ", "), " FROM ", sensor
   )
 
   # Where
-  query <- paste0(query, " WHERE (`participant_id` = '", participant_id, "')")
+  query <- paste0(
+    query, " WHERE (",
+    paste0("`participant_id` = '", participant_id, "'", collapse = " OR "),
+    ")"
+  )
 
-  if (!is.null(start_date) & !is.null(end_date)) {
+  if (!is.null(start_date) && !is.null(end_date)) {
     query <- paste0(query, " AND (`date` BETWEEN '", start_date, "' AND '", end_date, "')")
   }
 
@@ -702,45 +742,56 @@ moving_average <- function(db, sensor, participant_id, ..., n, start_date = NULL
   query <- paste0(query, ")")
 
   # Get data
-  DBI::dbGetQuery(db, query)
+  tibble::as_tibble(DBI::dbGetQuery(db, query))
 }
 
 
 #' Identify gaps in mpathsenser mobile sensing data
 #'
-#' @description
-#' `r lifecycle::badge("stable")`
+#' @description `r lifecycle::badge("stable")`
 #'
-#' Oftentimes in mobile sensing, gaps appear in the data as a result of the participant
-#' accidentally closing the app or the operating system killing the app to save power. This can
-#' lead to issues later on during data analysis when it becomes unclear whether there are no
-#' measurements because no events occurred or because the app quit in that period. For example,
-#' if no screen on/off event occur in a 6-hour period, it can either mean the participant did not
-#' turn on their phone in that period or that the app simply quit and potential events were missed.
-#' In the latter case, the 6-hour missing period has to be compensated by either removing this
-#' interval altogether or by subtracting the gap from the interval itself (see examples).
+#'   Oftentimes in mobile sensing, gaps appear in the data as a result of the participant
+#'   accidentally closing the app or the operating system killing the app to save power. This can
+#'   lead to issues later on during data analysis when it becomes unclear whether there are no
+#'   measurements because no events occurred or because the app quit in that period. For example, if
+#'   no screen on/off event occur in a 6-hour period, it can either mean the participant did not
+#'   turn on their phone in that period or that the app simply quit and potential events were
+#'   missed. In the latter case, the 6-hour missing period has to be compensated by either removing
+#'   this interval altogether or by subtracting the gap from the interval itself (see examples).
 #'
-#' @details
-#' While any sensor can be used for identifying gaps, it is best to choose a sensor with a very
-#' high, near-continuous sample rate such as the accelerometer or gyroscope. This function then
-#' creates time between two subsequent measurements and returns the period in which this time was
-#' larger than \code{min_gap}.
+#' @details While any sensor can be used for identifying gaps, it is best to choose a sensor with a
+#'   very high, near-continuous sample rate such as the accelerometer or gyroscope. This function
+#'   then creates time between two subsequent measurements and returns the period in which this time
+#'   was larger than \code{min_gap}.
 #'
-#' Note that the \code{from} and \code{to} columns in the output are character vectors in UTC time.
+#'   Note that the \code{from} and \code{to} columns in the output are character vectors in UTC
+#'   time.
+#'
+#' @section Warning: Depending on the sensor that is used to identify the gaps (though this is
+#'   typically the highest frequency sensor, such as the accelerometer or gyroscope), there may be a
+#'   small delay between the start of the gap and the _actual_ start of the gap. For example, if the
+#'   accelerometer samples every 5 seconds, it may be after 4.99 seconds after the last
+#'   accelerometer measurement (so just before the next measurement), the app was killed. However,
+#'   within that time other measurements may still have taken place, thereby technically occurring
+#'   "within" the gap. This is especially important if you want to use these gaps in
+#'   \code{\link[mpathsenser]{add_gaps}} since this issue may lead to erroneous results.
+#'
+#'   An easy way to solve this problem is by taking into account all the sensors of interest when
+#'   identifying the gaps, thereby ensuring there are no measurements of these sensors within the
+#'   gap. One way to account for this is to (as in this example) search for gaps 5 seconds longer
+#'   than you want and then afterwards increasing the start time of the gaps by 5 seconds.
 #'
 #' @inheritParams get_data
-#' @param min_gap The minimum time (in seconds) passed between two subsequent measurements for it
-#' to be considered a gap..
+#' @param min_gap The minimum time (in seconds) passed between two subsequent measurements for it to
+#'   be considered a gap.
 #'
-#' @return A tibble containing the time period of the gaps. The strucute of this tibble is as
-#' follows:
+#' @return A tibble containing the time period of the gaps. The structure of this tibble is as
+#'   follows:
 #'
-#' \tabular{ll}{
-#'   participant_id \tab the \code{participant_id} of where the gap occurred \cr
-#'   from           \tab the time of the last measurement before the gap \cr
-#'   to             \tab the time of the first measurement after the gap \cr
-#'   gap            \tab the time passed between from and to, in seconds
-#' }
+#'   \tabular{ll}{ participant_id \tab the \code{participant_id} of where the gap occurred \cr from
+#'   \tab the time of the last measurement before the gap \cr to             \tab the time of the
+#'   first measurement after the gap \cr gap            \tab the time passed between from and to, in
+#'   seconds }
 #' @export
 #'
 #' @examples
@@ -767,23 +818,36 @@ moving_average <- function(db, sensor, participant_id, ..., n, start_date = NULL
 #'   mutate(gap = any(gaps$from >= prev_time & gaps$to <= datetime))
 #' }
 identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Accelerometer") {
-  get_data(db, sensor, participant_id) %>%
-    dplyr::mutate(datetime = DATETIME(paste(date, time))) %>%
-    dplyr::select(participant_id, datetime) %>%
-    dplyr::group_by(participant_id) %>%
-    dbplyr::window_order(datetime) %>%
-    dplyr::mutate(from = dplyr::lag(datetime)) %>%
-    dplyr::ungroup() %>%
-    dplyr::mutate(gap = STRFTIME("%s", datetime) - STRFTIME("%s", from)) %>%
-    dplyr::filter(gap >= min_gap) %>%
-    dplyr::select(participant_id, from, to = datetime, gap) %>%
-    dplyr::collect()
+  check_db(db)
+  check_arg(min_gap, "numeric", n = 1)
+  check_sensors(sensor)
+
+  # Get the data for each sensor
+  data <- purrr::map(sensor, ~ {
+    get_data(db, .x, participant_id) %>%
+      mutate(datetime = DATETIME(paste(.data$date, .data$time))) %>%
+      select("participant_id", "datetime")
+  })
+
+  # Merge all together
+  data <- Reduce(dplyr::union, data)
+
+  # Then, calculate the gap duration
+  data %>%
+    group_by(.data$participant_id) %>%
+    window_order("datetime") %>%
+    mutate(to = lead(.data$datetime)) %>%
+    ungroup() %>%
+    mutate(gap = strftime("%s", .data$to) - strftime("%s", .data$datetime)) %>%
+    filter(.data$gap >= min_gap) %>%
+    select("participant_id", from = "datetime", "to", "gap") %>%
+    collect()
 }
 
 
-#'Add gap periods to sensor data
+#' Add gap periods to sensor data
 #'
-#'@description `r lifecycle::badge("experimental")`
+#' @description `r lifecycle::badge("stable")`
 #'
 #'  Since there may be many gaps in mobile sensing data, it is pivotal to pay attention in the
 #'  analysis to them. This function adds known gaps to data as "measurements", thereby allowing
@@ -792,7 +856,7 @@ identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Acc
 #'  we should somehow account for it. \code{add_gaps} accounts for this by adding the gap data to
 #'  sensors data by splitting intervals where gaps occur.
 #'
-#'@details In the example of 30 minutes walking where a 15 minute gap occurred (say after 5
+#' @details In the example of 30 minutes walking where a 15 minute gap occurred (say after 5
 #'  minutes), \code{add_gaps} adds two rows: one after 5 minutes of the start of the interval
 #'  indicating the start of the gap(if needed containing values from \code{fill}), and one after 20
 #'  minutes of the start of the interval signalling the walking activity. Then, when calculating
@@ -800,25 +864,27 @@ identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Acc
 #'  Note that if multiple measurements occurred before the gap, they will both be continued after
 #'  the gap.
 #'
-#'@param data A data frame containing the activity data. See \link[mpathsenser]{get_data} for
+#' @inheritSection identify_gaps Warning
+#'
+#' @param data A data frame containing the activity data. See \link[mpathsenser]{get_data} for
 #'  retrieving activity data from an mpathsenser database.
-#'@param gaps A data frame (extension) containing the gap data. See
+#' @param gaps A data frame (extension) containing the gap data. See
 #'  \link[mpathsenser]{identify_gaps} for retrieving gap data from an mpathsenser database. It
 #'  should at least contain the columns \code{from} and \code{to} (both in a date-time format), as
 #'  well as any specified columns in \code{by}.
-#'@param by A character vector indicating the variable(s) to match by, typically the participant
+#' @param by A character vector indicating the variable(s) to match by, typically the participant
 #'  IDs. If NULL, the default, \code{*_join()} will perform a natural join, using all variables in
 #'  common across \code{x} and \code{y}.
-#'@param fill A named list of the columns to fill with default values for the extra measurements
+#' @param fill A named list of the columns to fill with default values for the extra measurements
 #'  that are added because of the gaps.
 #'
-#'@seealso \code{\link[mpathsenser]{identify_gaps}} for finding gaps in the sampling;
+#' @seealso \code{\link[mpathsenser]{identify_gaps}} for finding gaps in the sampling;
 #'  \code{\link[mpathsenser]{link_gaps}} for finding which gaps occur in the data;
 #'
-#'@return A tibble containing the data and the added gaps.
-#'@export
+#' @return A tibble containing the data and the added gaps.
+#' @export
 #'
-#'@examples
+#' @examples
 #' # Define some data
 #' dat <- data.frame(
 #'   participant_id = "12345",
@@ -835,38 +901,97 @@ identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Acc
 #' )
 #'
 #' # Now add the gaps to the data
-#' add_gaps(data = dat,
-#'          gaps = gaps,
-#'          by = "participant_id")
+#' add_gaps(
+#'   data = dat,
+#'   gaps = gaps,
+#'   by = "participant_id"
+#' )
 #'
 #' # You can use fill if  you want to get rid of those pesky NA's
-#' add_gaps(data = dat,
-#'          gaps = gaps,
-#'          by = "participant_id",
-#'          fill = list(type = "GAP", confidence = 100))
+#' add_gaps(
+#'   data = dat,
+#'   gaps = gaps,
+#'   by = "participant_id",
+#'   fill = list(type = "GAP", confidence = 100)
+#' )
 add_gaps <- function(data, gaps, by = NULL, fill = NULL) {
-  by_names <- colnames(dplyr::select(data, {{ by }}))
-  if (!all(by_names %in% c(colnames(data), colnames(gaps)))) {
-    stop(paste(by, "must be a column in both data and gaps."), call. = FALSE)
+  check_arg(data, "data.frame")
+  check_arg(gaps, "data.frame")
+  check_arg(by, "character", allow_null = TRUE)
+
+  if (!is.null(by)) {
+    err <- try(
+      {
+        select(data, dplyr::all_of({{ by }}))
+        select(gaps, dplyr::all_of({{ by }}))
+      },
+      silent = TRUE
+    )
+
+    if (inherits(err, "try-error")) {
+      abort(paste0(
+        "Column(s) ", paste0("\"", by, "\"", collapse = ", "),
+        " must be present in both `data` and `gaps`."
+      ))
+    }
   }
 
   # Pour the gaps in a different format so that they can be added to the sensor data as
   # "measurements". Also provide each gap pair (i.e. from and to) with an ID so they can be matched
   # later on.
+  # Only assign the values from fill to the start of the gap, as we want the end of the gap to be
+  # NA when there is no prior data
   prepared_gaps <- gaps %>%
-    dplyr::select({{ by }}, .data$from, .data$to) %>%
-    dplyr::mutate(gap_id = dplyr::row_number()) %>%
-    dplyr::mutate(from = .data$from + 5) %>%
-    tidyr::pivot_longer(cols = c(.data$from, .data$to),
-                        names_to = "gap_type",
-                        values_to = "time") %>%
-    rlang::exec(.fn = dplyr::mutate, !!!fill)
+    select({{ by }}, "from", "to") %>%
+    mutate(gap_id = dplyr::row_number()) %>%
+    tidyr::pivot_longer(
+      cols = c("from", "to"),
+      names_to = "gap_type",
+      values_to = "time"
+    ) %>%
+    rlang::exec(.fn = mutate, !!!fill) %>%
+    mutate(across(names(fill), ~ ifelse(gap_type == "to", NA, .x)))
+
+  # Assign groups numbers to the data based on their time stamp and by column In principle, each row
+  # is its own group, but if their are multiple measurements with the same time stamp they will get
+  # the same group number
+  #
+  # This is one of the big design decision in this function: Each gap after a measurement should
+  # have fill in their starting row (i.e. "from") and continue the previous measurement when the gap
+  # ends. However, this is not the case when there is no prior data (or any data at all), in which
+  # case there should be NA. Also when there are multiple gaps after each other, the end point of
+  # the gap should be the lag of from, then lag2 of from, then lag3 of from, etcetera. Of course
+  # this is infeasible as we don't know how many subsequent gaps there are in the data. Hence, we
+  # have these row_ids. The basic idea is that we assign to all gaps following a measurement (or
+  # multiple measurements with the same time stamp) with row_id "123" the same row_id "123", like
+  # so:
+  # participant_id  time                    event row_id
+  # 12345           2022-05-10 10:00:00     a     123
+  # 12345           2022-05-10 10:10:00     GAP   NA => 123
+  # 12345           2022-05-10 10:20:00     NA    NA => 123
+  #
+  # See below for how to continue this sequence, but know that this is why there are row_ids.
+  data <- data %>%
+    arrange(across(c({{ by }}, "time"))) %>%
+    group_by(across(c({{ by }}, "time"))) %>%
+    mutate(row_id = dplyr::cur_group_id()) %>%
+    ungroup()
+
+  # Remove the time stamps as they are contained in the row_id (with multiple measurements at the
+  # same time having the same row_id)
+  # This data frame will be used later to match data to the gaps' row_ids.
+  lead_data <- data %>%
+    select(-"time")
 
   data %>%
-    # Add gaps to the data
-    dplyr::bind_rows(prepared_gaps) %>%
-    # Sort just to be sure
-    dplyr::arrange(dplyr::across(c({{ by }}, .data$time))) %>%
+    # Add the gaps to the data
+    bind_rows(prepared_gaps) %>%
+    # Sort the data to get the correct order, i.e. measurement followed by their respective gaps.
+    arrange(across(c({{ by }}, "time"))) %>%
+    # As in the example above, fill the row_ids belonging to the data downwards to each gap. By
+    # doing this, each gap (no matter how many following the measurement) is now associated with the
+    # previous measurement, solving the multiple-gap-problem.
+    tidyr::fill("row_id", .direction = "down") %>%
     # Then, nest confidence and type by time to calculate the "lag - 2" for the end of gaps "to".
     # This is necessary because if two measurements at the same time were present just before the
     # gap, they should also both continue after the gap.
@@ -876,8 +1001,8 @@ add_gaps <- function(data, gaps, by = NULL, fill = NULL) {
     # nest() %>%
     # ungroup() %>%
     # or
-    # group_by(participant_id, time) %>%
-    # nest(data = c(confidence, type)) %>%
+    # group_by(across(c({{ by }}, .data$time))) %>%
+    # nest(data = !c(.data$gap_id, .data$gap_type, .data$row_id)) %>%
     # ungroup() %>%
     #
     # This means that if there is a (or multiple) measurement of the same participant at the same
@@ -885,39 +1010,34 @@ add_gaps <- function(data, gaps, by = NULL, fill = NULL) {
     # with the measurements that are not the gap, and one with the gap measurement, while both
     # having the same participant_id and time stamp. For example:
     #
-    # participant_id    time      type    gap_type  gap_id
-    # 12345             10:00:00  STILL   NA        NA
-    # 12345             10:00:00  ACTIVE  NA        NA
-    # 12345             10:00:00  GAP     from      1
+    # participant_id  time      type    gap_type  gap_id  row_id
+    # 12345           10:00:00  STILL   NA        NA      1
+    # 12345           10:00:00  ACTIVE  NA        NA      1
+    # 12345           10:00:00  GAP     from      1       2
     #
     # Nesting then results in the following:
-    # participant_id    time    gap_type  gap_id  data
-    # 12345          10:00:00   NA        NA      <tibble [2 × 1]>
-    # 12345          10:00:00   from      1       <tibble [1 × 1]>
+    # participant_id  time    gap_type  gap_id  row_id  data
+    # 12345           10:00:00   NA        NA      1     <tibble [2 × 1]>
+    # 12345           10:00:00   from      1       2     <tibble [1 × 1]>
     #
     # Creating the from_lag column as below, it would mean that row 2 would get the data  from row
     # 1, which is intended behaviour. If all 3 rows would be nested in the same tibble, we would get
     # the measurement before that in from_lag, even though there were more recent measurements.
     # Besides, any other nesting would inevitably include gap_type and gap_id in the nested tibble,
     # breaking the code.
-    tidyr::nest(data = !c({{ by }}, .data$time, .data$gap_id, .data$gap_type)) %>%
-    # Next, calculate the lag from the "to" column on the nested data. This are simply the
-    # activities that occurred last before the start of the gap. It is put in a new column
-    # ("from_lag") to preserve it for the next lag phase.
-    dplyr::mutate(from_lag = ifelse(!is.na(.data$gap_type) & .data$gap_type == "from",
-                                    dplyr::lag(.data$data),
-                                    NA)) %>%
-    # Group the data by gap_id to ensure "to" always lags from "from" and not some other measurement
-    # in case it somehow came in between the start and end of the gap.
-    dplyr::group_by(.data$gap_id) %>%
-    # Only if the row signals the end of the measurements: modify data (i.e. the confidence and type)
-    # with the lagged from_lag (i.e. the from_lag of "from"). Else, leave data intact.
-    dplyr::mutate(data = ifelse(!is.na(.data$gap_type) & .data$gap_type == "to",
-                         dplyr::lag(.data$from_lag),
-                         .data$data)) %>%
-    # Lastly, unnest the data to get the original (and modified for "to") confidence and type, and
-    # ungroup and cleanup
-    tidyr::unnest(.data$data) %>%
-    dplyr::ungroup() %>%
-    dplyr::select(-c(.data$from_lag, .data$gap_id, .data$gap_type))
+    nest(data = !c({{ by }}, "time", "gap_id", "gap_type", "row_id")) %>%
+    # Now, match the data (without the gaps) to each corresponding row_id. Thus, in some cases data
+    # and data2 will be identical. Only for the end points of gaps, set data to data2.
+    dplyr::nest_join(lead_data, by = c("participant_id", "row_id"), name = "data2") %>%
+    mutate(data = ifelse(!is.na(.data$gap_type) & .data$gap_type == "to",
+      .data$data2,
+      .data$data
+    )) %>%
+    # Lastly, unnest the data to get the original (and modified for "to") nested data, and ungroup
+    # and cleanup
+    # Make sure not to remove empty data tibbles as these are true NA's, i.e. either gaps where
+    # fill was not specified or gaps where there was no prio data present
+    unnest("data", keep_empty = TRUE) %>%
+    ungroup() %>%
+    select(-c("gap_id", "gap_type", "data2", "row_id"))
 }

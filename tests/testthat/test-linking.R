@@ -12,7 +12,7 @@ test_that("link", {
     x = rep(1:30, 2)
   )
 
-  res <- link(dat1, dat2, "participant_id", offset_before = 1800)
+  res <- link(dat1, dat2, "participant_id", offset_before = 1800, split = NULL)
   true <- tibble::tibble(
     time = rep(c(
       as.POSIXct("2021-11-14 13:00:00"), as.POSIXct("2021-11-14 14:00:00"),
@@ -46,13 +46,17 @@ test_that("link", {
   )
   expect_equal(res, true)
 
+  # Test split argument
+  res <- link(dat1, dat2, "participant_id", offset_before = 1800, split = 6)
+  expect_equal(res, true)
+
   # Scrambled test
   scramble <- function(data) {
-    idx <- sample(1:nrow(data), nrow(data))
+    idx <- sample(seq_along(data[, 1]), nrow(data))
     data[idx, ]
   }
   res <- link(scramble(dat1), scramble(dat2), "participant_id", offset_before = 1800) %>%
-    dplyr::arrange(participant_id, time)
+    arrange(participant_id, time)
   expect_equal(res, true)
 
   res <- link(dat1, dat2, "participant_id", offset_after = 1800)
@@ -90,7 +94,7 @@ test_that("link", {
   expect_equal(res, true)
 
   res <- link(scramble(dat1), scramble(dat2), "participant_id", offset_after = 1800) %>%
-    dplyr::arrange(participant_id, time)
+    arrange(participant_id, time)
   expect_equal(res, true)
 
   # Test add_before and add_after
@@ -157,31 +161,13 @@ test_that("link", {
   expect_equal(res, true, ignore_attr = TRUE)
 
   # Test arguments
-  expect_error(link(1, dat2, "participant_id", offset_before = 1800), "x must be a data frame")
-  expect_error(link(dat1, 1, "participant_id", offset_before = 1800), "y must be a data frame")
   expect_error(
-    link(dat1, dat2, 12345, offset_before = 1800),
-    "by must be a character vector of variables to join by"
-  )
-
-  expect_error(
-    link(dplyr::mutate(dat1, time = as.character(time)), dat2, offset_before = 1800),
+    link(mutate(dat1, time = as.character(time)), dat2, offset_before = 1800),
     "column 'time' in x must be a POSIXct"
   )
   expect_error(
-    link(dat1, dplyr::mutate(dat2, time = as.character(time)), offset_before = 1800),
+    link(dat1, mutate(dat2, time = as.character(time)), offset_before = 1800),
     "column 'time' in y must be a POSIXct"
-  )
-  expect_error(
-    link(dat1, dat2, offset_before = TRUE),
-    "offset_before must be a character vector, numeric vector, or a period"
-  )
-  expect_error(
-    link(dat1, dat2, offset_before = "1800"),
-    paste(
-      "Invalid offset specified\\. Try something like '30 minutes', ",
-      "lubridate::minutes\\(30\\)\\, or 1800."
-    )
   )
   expect_error(
     link(dplyr::select(dat1, -time), dat2, offset_before = 1800),
@@ -362,35 +348,32 @@ test_that("link_db", {
   )
   expect_equal(res, true)
 
-  expect_error(
-    link_db(db, "Activity", 1:10, offset_before = 1800),
-    "sensor_two must be a character vector"
-  )
-  expect_error(
-    link_db(db, "Activity", offset_before = 1800, external = "Bluetooth"),
-    "external must be a data frame"
-  )
+  # Argument checks
   expect_error(
     link_db(db, "Activity", "Bluetooth", offset_before = 1800, external = dat1),
-    "only a second sensor or an external data frame can be supplied, but not both"
+    "Either a second sensor or an external data frame must be supplied."
   )
   expect_error(
     link_db(db, "Activity", offset_before = 1800),
-    "either a second sensor or an external data frame must be supplied"
+    "Either a second sensor or an external data frame must be supplied."
   )
-  DBI::dbDisconnect(db)
-  expect_error(
-    link_db(db, "Activity", "Bluetooth", offset_before = 1800),
-    "Database connection is not valid"
+
+  # Check time zone differences
+  dat1$time <- .POSIXct(dat1$time, tz = "Europe/Brussels")
+  expect_warning(
+    link_db(db, "Activity", external = dat1, offset_after = 1800),
+    "`external` is not using UTC as a time zone, unlike the data in the database."
   )
+  dat1$time <- .POSIXct(dat1$time, tz = "UTC")
+  dbDisconnect(db)
 
   # Check if ignore_large works
   filename <- tempfile("big", fileext = ".db")
   db <- create_db(NULL, filename)
 
   # Populate database
-  add_study(db, data.frame(study_id = "test-study", data_format = "CARP"))
-  add_participant(db, data.frame(study_id = "test-study", participant_id = "12345"))
+  add_study(db, study_id = "test-study", data_format = "CARP")
+  add_participant(db, participant_id = "12345", study_id = "test-study")
 
   sens_value <- seq.int(0, 10, length.out = 50001)
   time_value <- seq.POSIXt(as.POSIXct("2021-11-14 14:00:00.000", format = "%F %H:%M:%OS"),
@@ -420,7 +403,7 @@ test_that("link_db", {
   )
 
   # Cleanup
-  DBI::dbDisconnect(db)
+  dbDisconnect(db)
   file.remove(filename)
 })
 
@@ -452,7 +435,8 @@ test_that("link_gaps", {
         "2021-11-14 15:30:00", # 4 before, after
         "2021-11-14 12:15:00", # 5 before, after
         "2021-11-14 18:35:00" # 6 before, after
-      ))), 2),
+      ))
+    ), 2),
     to = rep(c(
       seq.POSIXt(as.POSIXct("2021-11-14 12:41:00"), by = "1 min", length.out = 20), # 1 before
       seq.POSIXt(as.POSIXct("2021-11-14 13:11:00"), by = "1 min", length.out = 20), # 1 after
@@ -463,7 +447,8 @@ test_that("link_gaps", {
         "2021-11-14 16:30:00", # 4 before, after
         "2021-11-14 12:25:00", # 5 before, after
         "2021-11-14 18:40:00" # 6 before, after
-      ))), 2)
+      ))
+    ), 2)
   )
 
   # Test difference types of input for offset_before
@@ -594,7 +579,7 @@ test_that("link_gaps", {
 
   # Scrambled test
   scramble <- function(data) {
-    idx <- sample(1:nrow(data), nrow(data))
+    idx <- sample(seq_along(data[, 1]), nrow(data))
     data[idx, ]
   }
   res <- link_gaps(
@@ -604,7 +589,7 @@ test_that("link_gaps", {
     offset_before = 1800,
     raw_data = TRUE
   ) %>%
-    dplyr::arrange(participant_id, time)
+    arrange(participant_id, time)
   expect_equal(res_raw, true)
 
   # offset_before, raw_data = FALSE
@@ -626,7 +611,7 @@ test_that("link_gaps", {
   # Test whether results from raw_data = FALSE and TRUE are the same
   expect_equal(
     res_raw %>%
-      dplyr::mutate(gap = purrr::map_dbl(gap_data, ~ sum(.x$gap))) %>%
+      mutate(gap = purrr::map_dbl(gap_data, ~ sum(.x$gap))) %>%
       dplyr::select(-gap_data),
     res
   )
@@ -699,7 +684,7 @@ test_that("link_gaps", {
   # Test whether results from raw_data = FALSE and TRUE are the same
   expect_equal(
     res_raw %>%
-      dplyr::mutate(gap = purrr::map_dbl(gap_data, ~ sum(.x$gap))) %>%
+      mutate(gap = purrr::map_dbl(gap_data, ~ sum(.x$gap))) %>%
       dplyr::select(-gap_data),
     res
   )
@@ -778,8 +763,264 @@ test_that("link_gaps", {
   # Test whether results from raw_data = FALSE and TRUE are the same
   expect_equal(
     res_raw %>%
-      dplyr::mutate(gap = purrr::map_dbl(gap_data, ~ sum(.x$gap))) %>%
+      mutate(gap = purrr::map_dbl(gap_data, ~ sum(.x$gap))) %>%
       dplyr::select(-gap_data),
     res
+  )
+
+  # Argument checks
+  expect_error(
+    link_gaps(
+      data = dat1[, -2],
+      gaps = dat2,
+      by = "participant_id",
+      offset_after = 1800
+    ),
+    "Column `time` must be present in `data`"
+  )
+  expect_error(
+    link_gaps(
+      data = dat1,
+      gaps = dat2[, -2],
+      by = "participant_id",
+      offset_after = 1800
+    ),
+    "Column `from` and `to` must be present in `gaps`."
+  )
+  expect_error(
+    link_gaps(
+      data = mutate(dat1, time = as.character(time)),
+      gaps = dat2,
+      by = "participant_id",
+      offset_after = 1800
+    ),
+    "Column `time` in `data` must be a POSIXct."
+  )
+})
+
+## bin_data =================
+test_that("bin_data", {
+  data <- tibble::tibble(
+    participant_id = 1,
+    datetime = c(
+      "2022-06-21 15:00:00", "2022-06-21 15:55:00",
+      "2022-06-21 17:05:00", "2022-06-21 17:10:00"
+    ),
+    confidence = 100,
+    type = "WALKING"
+  )
+
+  # get bins per hour, even if the interval is longer than one hour
+  res <- data %>%
+    mutate(datetime = as.POSIXct(datetime)) %>%
+    mutate(lead = lead(datetime)) %>%
+    bin_data(
+      start_time = datetime,
+      end_time = lead,
+      by = "hour"
+    )
+
+  true <- tibble::tibble(
+    bin = as.POSIXct(c("2022-06-21 15:00:00", "2022-06-21 16:00:00", "2022-06-21 17:00:00")),
+    bin_data = list(
+      tibble::tibble(
+        participant_id = 1,
+        datetime = as.POSIXct(c("2022-06-21 15:00:00", "2022-06-21 15:55:00")),
+        confidence = 100,
+        type = "WALKING",
+        lead = as.POSIXct(c("2022-06-21 15:55:00", "2022-06-21 16:00:00"))
+      ),
+      tibble::tibble(
+        participant_id = 1,
+        datetime = as.POSIXct(c("2022-06-21 16:00:00")),
+        confidence = 100,
+        type = "WALKING",
+        lead = as.POSIXct("2022-06-21 17:00:00")
+      ),
+      tibble::tibble(
+        participant_id = 1,
+        datetime = as.POSIXct(c(
+          "2022-06-21 17:00:00", "2022-06-21 17:05:00",
+          "2022-06-21 17:10:00"
+        )),
+        confidence = 100,
+        type = "WALKING",
+        lead = as.POSIXct(c("2022-06-21 17:05:00", "2022-06-21 17:10:00", NA))
+      )
+    )
+  )
+  expect_equal(res, true)
+
+  # Alternatively, you can give an integer value to by to create custom-sized
+  # bins, but only if fixed = FALSE. Not that these bins are not rounded to,
+  # as in this example 30 minutes, but rather depends on the earliest time
+  # in the group.
+  res <- data %>%
+    mutate(datetime = as.POSIXct(datetime)) %>%
+    mutate(lead = lead(datetime)) %>%
+    bin_data(
+      start_time = datetime,
+      end_time = lead,
+      by = 1800L,
+      fixed = FALSE
+    )
+  true <- tibble::tibble(
+    bin = as.POSIXct(c(
+      "2022-06-21 15:00:00", "2022-06-21 15:30:00", "2022-06-21 16:00:00",
+      "2022-06-21 16:30:00", "2022-06-21 17:00:00"
+    )),
+    bin_data = list(
+      tibble::tibble(
+        participant_id = 1,
+        datetime = as.POSIXct(c("2022-06-21 15:00:00")),
+        confidence = 100,
+        type = "WALKING",
+        lead = as.POSIXct(c("2022-06-21 15:30:00"))
+      ),
+      tibble::tibble(
+        participant_id = 1,
+        datetime = as.POSIXct(c("2022-06-21 15:30:00", "2022-06-21 15:55:00")),
+        confidence = 100,
+        type = "WALKING",
+        lead = as.POSIXct(c("2022-06-21 15:55:00", "2022-06-21 16:00:00"))
+      ),
+      tibble::tibble(
+        participant_id = 1,
+        datetime = as.POSIXct(c("2022-06-21 16:00:00")),
+        confidence = 100,
+        type = "WALKING",
+        lead = as.POSIXct(c("2022-06-21 16:30:00"))
+      ),
+      tibble::tibble(
+        participant_id = 1,
+        datetime = as.POSIXct(c("2022-06-21 16:30:00")),
+        confidence = 100,
+        type = "WALKING",
+        lead = as.POSIXct(c("2022-06-21 17:00:00"))
+      ),
+      tibble::tibble(
+        participant_id = 1,
+        datetime = as.POSIXct(c(
+          "2022-06-21 17:00:00", "2022-06-21 17:05:00",
+          "2022-06-21 17:10:00"
+        )),
+        confidence = 100,
+        type = "WALKING",
+        lead = as.POSIXct(c("2022-06-21 17:05:00", "2022-06-21 17:10:00", NA))
+      )
+    )
+  )
+  expect_equal(res, true)
+
+  # More complicated data for showcasing grouping:
+  data <- tibble::tibble(
+    participant_id = c(rep(1, 4), rep(2, 4)),
+    datetime = rep(c(
+      "2022-06-21 15:00:00", "2022-06-21 15:55:00",
+      "2022-06-21 17:05:00", "2022-06-21 17:10:00"
+    ), 2),
+    confidence = 100,
+    type = rep(c("STILL", "WALKING", "STILL", "WALKING"), 2)
+  )
+
+  # binned_intervals also takes into account the prior grouping structure
+  res <- data %>%
+    mutate(datetime = as.POSIXct(datetime)) %>%
+    group_by(participant_id) %>%
+    mutate(lead = lead(datetime)) %>%
+    group_by(participant_id, type) %>%
+    bin_data(
+      start_time = datetime,
+      end_time = lead,
+      by = "hour"
+    )
+  true <- tibble::tibble(
+    participant_id = c(rep(1, 6), rep(2, 6)),
+    type = rep(c("STILL", "STILL", "STILL", "WALKING", "WALKING", "WALKING"), 2),
+    bin = rep(as.POSIXct(c(
+      "2022-06-21 15:00:00", "2022-06-21 16:00:00",
+      "2022-06-21 17:00:00"
+    )), 4),
+    bin_data = rep(list(
+      # STILL
+      tibble::tibble(
+        datetime = as.POSIXct(c("2022-06-21 15:00:00")),
+        confidence = 100,
+        lead = as.POSIXct(c("2022-06-21 15:55:00"))
+      ),
+      tibble::tibble(
+        datetime = as.POSIXct(double(0)),
+        confidence = double(0),
+        lead = as.POSIXct(double(0))
+      ),
+      tibble::tibble(
+        datetime = as.POSIXct(c("2022-06-21 17:05:00")),
+        confidence = 100,
+        lead = as.POSIXct(c("2022-06-21 17:10:00"))
+      ),
+      # WALKING
+      tibble::tibble(
+        datetime = as.POSIXct(c("2022-06-21 15:55:00")),
+        confidence = 100,
+        lead = as.POSIXct(c("2022-06-21 16:00:00"))
+      ),
+      tibble::tibble(
+        datetime = as.POSIXct(c("2022-06-21 16:00:00")),
+        confidence = 100,
+        lead = as.POSIXct(c("2022-06-21 17:00:00"))
+      ),
+      tibble::tibble(
+        datetime = as.POSIXct(c("2022-06-21 17:00:00", "2022-06-21 17:10:00")),
+        confidence = 100,
+        lead = as.POSIXct(c("2022-06-21 17:05:00", NA))
+      )
+    ), 2)
+  ) %>%
+    group_by(participant_id, type)
+  expect_equal(res, true)
+
+  # To get the duration for each bin (note to change the variable names in sum):
+  duration <- purrr::map_dbl(
+    .x = res$bin_data,
+    .f = ~ sum(as.double(.x$lead) - as.double(.x$datetime),
+      na.rm = TRUE
+    ) / 60
+  )
+
+  # Or:
+  duration2 <- res %>%
+    unnest(bin_data, keep_empty = TRUE) %>%
+    mutate(duration = .data$lead - .data$datetime) %>%
+    group_by(bin, .add = TRUE) %>%
+    summarise(duration = sum(.data$duration, na.rm = TRUE), .groups = "drop")
+
+  true <- c(55, 0, 5, 5, 60, 5, 55, 0, 5, 5, 60, 5)
+  expect_equal(duration, as.double(duration2$duration))
+  expect_equal(duration, true)
+  expect_equal(as.double(duration2$duration), true)
+
+  # Argument checks
+  data <- data %>%
+    mutate(datetime = as.POSIXct(datetime)) %>%
+    mutate(lead = lead(datetime))
+
+  expect_error(
+    bin_data(
+      data = data,
+      start_time = datetime,
+      end_time = lead,
+      by = TRUE
+    ),
+    "`by` must be one of 'sec', 'min', 'hour', or 'day', or a numeric value if `fixed = FALSE`."
+  )
+  expect_error(
+    data %>%
+      mutate(datetime = as.character(datetime)) %>%
+      bin_data(
+        start_time = datetime,
+        end_time = lead,
+        by = "hour"
+      ),
+    NA
   )
 })

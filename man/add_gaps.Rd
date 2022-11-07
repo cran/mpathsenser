@@ -26,7 +26,7 @@ that are added because of the gaps.}
 A tibble containing the data and the added gaps.
 }
 \description{
-\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#experimental}{\figure{lifecycle-experimental.svg}{options: alt='[Experimental]'}}}{\strong{[Experimental]}}
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#stable}{\figure{lifecycle-stable.svg}{options: alt='[Stable]'}}}{\strong{[Stable]}}
 
 Since there may be many gaps in mobile sensing data, it is pivotal to pay attention in the
 analysis to them. This function adds known gaps to data as "measurements", thereby allowing
@@ -44,6 +44,22 @@ time differences between subsequent measurements, the gap period is appropriatel
 Note that if multiple measurements occurred before the gap, they will both be continued after
 the gap.
 }
+\section{Warning}{
+ Depending on the sensor that is used to identify the gaps (though this is
+typically the highest frequency sensor, such as the accelerometer or gyroscope), there may be a
+small delay between the start of the gap and the \emph{actual} start of the gap. For example, if the
+accelerometer samples every 5 seconds, it may be after 4.99 seconds after the last
+accelerometer measurement (so just before the next measurement), the app was killed. However,
+within that time other measurements may still have taken place, thereby technically occurring
+"within" the gap. This is especially important if you want to use these gaps in
+\code{\link[mpathsenser]{add_gaps}} since this issue may lead to erroneous results.
+
+An easy way to solve this problem is by taking into account all the sensors of interest when
+identifying the gaps, thereby ensuring there are no measurements of these sensors within the
+gap. One way to account for this is to (as in this example) search for gaps 5 seconds longer
+than you want and then afterwards increasing the start time of the gaps by 5 seconds.
+}
+
 \examples{
 # Define some data
 dat <- data.frame(
@@ -61,15 +77,19 @@ gaps <- data.frame(
 )
 
 # Now add the gaps to the data
-add_gaps(data = dat,
-         gaps = gaps,
-         by = "participant_id")
+add_gaps(
+  data = dat,
+  gaps = gaps,
+  by = "participant_id"
+)
 
 # You can use fill if  you want to get rid of those pesky NA's
-add_gaps(data = dat,
-         gaps = gaps,
-         by = "participant_id",
-         fill = list(type = "GAP", confidence = 100))
+add_gaps(
+  data = dat,
+  gaps = gaps,
+  by = "participant_id",
+  fill = list(type = "GAP", confidence = 100)
+)
 }
 \seealso{
 \code{\link[mpathsenser]{identify_gaps}} for finding gaps in the sampling;

@@ -1,29 +1,21 @@
 # First, try to simply add the data to the table If the measurement already exists,
 # skip that measurement
 save2db <- function(db, name, data) {
-  tryCatch(
-    {
-      DBI::dbAppendTable(db, name, data)
-    },
-    error = function(e) {
-      message("Could not add data to the data base. Falling back to UPSERT method")
-
-      dbx::dbxUpsert(
-        db,
-        name,
-        data,
-        where_cols = c("measurement_id"),
-        skip_existing = TRUE
-      )
-    }
+  insert_cols <- paste0("`", colnames(data), "`", collapse = ", ")
+  cols <- paste0(":", colnames(data), collapse = ", ")
+  res <- DBI::dbSendStatement(
+    conn = db,
+    statement = paste0("INSERT OR REPLACE INTO ", name, " (", insert_cols, ") VALUES (", cols, ")"),
+    params = as.list(data)
   )
+  DBI::dbClearResult(res)
 }
 
 # This function is needed because calling the function on the fly from the sensor name
 # (i.e. dynamic evaluation) poses a problem from the globals package, which would then not
 # include these import functions in the futures.
 which_sensor <- function(data, sensor) {
-  switch(sensor,
+  switch(tolower(sensor),
     accelerometer = accelerometer_fun(data),
     activity = activity_fun(data),
     air_quality = air_quality_fun(data),
@@ -88,7 +80,7 @@ safe_tibble <- function(...) {
 
 default_fun <- function(data) {
   data$body <- lapply(data$body, function(x) x$body)
-  data <- dplyr::bind_cols(data, dplyr::bind_rows(data$body))
+  data <- dplyr::bind_cols(data, bind_rows(data$body))
   data$body <- NULL
 
   data
@@ -115,17 +107,17 @@ accelerometer_fun <- function(data) {
 }
 
 periodic_accelerometer_fun <- function(data) {
-  data$id <- sapply(data$body, function(x) x$body$id)
+  data$id <- vapply(data$body, function(x) x$body$id, character(1), USE.NAMES = FALSE)
   data$body <- lapply(data$body, function(x) x$body$data)
 
-  data <- tidyr::unnest(data, body, keep_empty = TRUE)
+  data <- unnest(data, "body", keep_empty = TRUE)
 
   data$timestamp <- lapply(data$body, function(x) x$timestamp)
   data$x <- lapply(data$body, function(x) x$x)
   data$y <- lapply(data$body, function(x) x$y)
   data$z <- lapply(data$body, function(x) x$z)
   data$body <- NULL
-  data <- tidyr::unnest(data, timestamp:z)
+  data <- unnest(data, "x":"z", keep_empty = TRUE)
 
   # TODO: Consider unique ID constraint Temporary fix
   ids <- stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)
@@ -165,8 +157,8 @@ air_quality_fun <- function(data) {
 
 app_usage_fun <- function(data) {
   data$body <- lapply(data$body, function(x) x$body)
-  data$body <- suppressWarnings(lapply(data$body, dplyr::bind_rows))
-  data <- tidyr::unnest(data, body, keep_empty = TRUE)
+  data$body <- suppressWarnings(lapply(data$body, bind_rows))
+  data <- unnest(data, body, keep_empty = TRUE)
 
   if ("usage" %in% colnames(data)) {
     data$app <- names(data$usage)
@@ -202,9 +194,9 @@ apps_fun <- function(data) {
       apps = list(x$installed_apps)
     )
   })
-  data <- tidyr::unnest(data, body, keep_empty = TRUE)
-  data <- tidyr::unnest(data, apps, keep_empty = TRUE)
-  data <- tidyr::unnest(data, apps, keep_empty = TRUE)
+  data <- unnest(data, "body", keep_empty = TRUE)
+  data <- unnest(data, "apps", keep_empty = TRUE)
+  data <- unnest(data, "apps", keep_empty = TRUE)
 
   # TODO: Consider unique ID constraint Temporary fix
   ids <-
@@ -234,11 +226,11 @@ battery_fun <- function(data) {
 }
 
 bluetooth_fun <- function(data) {
-  data$id <- sapply(data$body, function(x) x$body$id)
+  data$id <- vapply(data$body, function(x) x$body$id, character(1))
   data$timestamp <- sapply(data$body, function(x) x$body$timestamp)
   data$body <- lapply(data$body, function(x) x$body$scan_result)
-  data$body <- lapply(data$body, dplyr::bind_rows)
-  data <- tidyr::unnest(data, body, keep_empty = TRUE)
+  data$body <- lapply(data$body, bind_rows)
+  data <- unnest(data, body, keep_empty = TRUE)
 
   # TODO: Consider unique ID constraint Temporary fix
   ids <- stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)
@@ -263,9 +255,7 @@ bluetooth_fun <- function(data) {
 # Currently, multiple entries are already possible but it's not clear why they are
 # wrapped in another list as well.
 calendar_fun <- function(data) {
-  data$id <- sapply(data$body, function(x) {
-    x$body$id
-  })
+  data$id <- vapply(data$body, function(x) x$body$id, character(1))
   data$body <- lapply(data$body, function(x) {
     x$body$calendar_events
   })
@@ -289,8 +279,8 @@ calendar_fun <- function(data) {
   }
 
 
-  data$body <- lapply(data$body, dplyr::bind_rows)
-  data <- tidyr::unnest(data, body, keep_empty = TRUE)
+  data$body <- lapply(data$body, bind_rows)
+  data <- unnest(data, body, keep_empty = TRUE)
 
   # Collapse attendees list
   if (any("attendees" == colnames(data))) {
@@ -394,7 +384,8 @@ gyroscope_fun <- function(data) {
 }
 
 keyboard_fun <- function(data) {
-  stop("Function not implemented")
+  warn("Function for implementing keyboard data currently not implemented.")
+  return(NULL)
 }
 
 light_fun <- function(data) {
@@ -477,21 +468,29 @@ noise_fun <- function(data) {
 }
 
 phone_log_fun <- function(data) {
-  data$id <- sapply(data$body, function(x) x$body$id)
-  data$timestamp <- sapply(data$body, function(x) x$body$timestamp)
+  data$id <- vapply(data$body, function(x) x$body$id, character(1))
+
   data$body <- lapply(data$body, function(x) x$body$phone_log)
-  data$body <- lapply(data$body, dplyr::bind_rows)
+  data$body <- lapply(data$body, bind_rows)
   data$body <- lapply(data$body, function(x) {
     # Replace double timestamp name
-    colnames(x)[colnames(x) == "timestamp"] <- "datetime"
+    if (nrow(x) > 0 & "timestamp" %in% colnames(x)) {
+      dplyr::rename(x, "datetime" = "timestamp")
+    } else {
+      x
+    }
   })
-  data <- tidyr::unnest(data, body, keep_empty = TRUE)
+  data <- unnest(data, body, keep_empty = TRUE)
+
+  # TODO: Consider unique ID constraint Temporary fix
+  ids <- stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)
+  data$id <- paste0(data$id, "_", ids)
 
   safe_data_frame(
     measurement_id = data$id,
     participant_id = data$participant_id,
-    date = substr(data$timestamp, 1, 10),
-    time = substr(data$timestamp, 12, 19),
+    date = substr(data$start_time, 1, 10),
+    time = substr(data$start_time, 12, 19),
     call_type = data$call_type,
     datetime = data$datetime,
     duration = data$duration,
@@ -527,11 +526,11 @@ screen_fun <- function(data) {
 
 # TODO: Check if text_message can be unnested
 text_message_fun <- function(data) {
-  data$id <- sapply(data$body, function(x) x$body$id)
+  data$id <- vapply(data$body, function(x) x$body$id, character(1))
   data$timestamp <- sapply(data$body, function(x) x$body$timestamp)
   data$body <- lapply(data$body, function(x) x$body$text_message)
-  data$body <- lapply(data$body, dplyr::bind_rows)
-  data <- tidyr::unnest(data, body, keep_empty = TRUE)
+  data$body <- lapply(data$body, bind_rows)
+  data <- unnest(data, body, keep_empty = TRUE)
 
   # TODO: Consider unique ID constraint Temporary fix
   ids <- stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)

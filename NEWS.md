@@ -1,3 +1,52 @@
+# mpathsenser 1.1.1
+## Major changes
+* `identify_gaps()` now allows multiple sensors to be used. This is particularly useful when there 
+are no sensors with high frequency sampling (like accelerometer and gyroscope) or to ensure there 
+can be no measurements within the gaps from any sensor.
+* Changed the arguments names of `copy_db()` `from_db` and `to_db` to `source_db` and `target_db`
+respectively.
+* Set `activity_duration()`, `screen_duration()`, `n_screen_on()`, `n_screen_unlocks()`, and 
+`step_count()` to internal until it is clear how these functions should behave and, more 
+importantly, what their output should be.
+* Reworked `moving_average()` to work correctly on multiple participants.
+
+## Deprecations
+* Deprecated functionality for on-the-fly database creation in several functions. This disentangles 
+the functionalities of `create_db()` and the other functions, where the latter implicitly depended 
+on the former. The following arguments are thereby rendered disabled:
+  - `dbname` and `overwrite_db` arguments in `import()`
+  - `path` and `db_name` in `copy_db()`
+* Deprecated the `parallel` argument in several functions. If you wish to process in parallel, you
+must now specify this beforehand using a [future plan](https://rdrr.io/cran/future/), e.g.
+`future::plan("multisession")`. As a consequence, the package `future` is no longer a dependency 
+(but `furrr` is).
+* Deprecated the `plot` argument in `coverage`. To plot a coverage chart, you can now use the 
+default `plot()` function with the output from `coverage`.
+
+## Minor changes
+* All functions gained basic argument checking, ensuring that at least the proper type has been 
+input.
+* The package now provides more nicely formatted errors, warnings, and messages through 
+[`rlang::abort`, `rlang::warn`, and `rlang::inform`](https://rlang.r-lib.org/reference/abort.html).
+* Partially rewrote `import()` to be more manageable in code. As a consequence, the dependency on 
+`rjson` and `dbx` can be dropped in favour of jsonlite and native SQL. 
+* Added `lifecycle` as a dependency for deprecating arguments.
+* Added a warning section in `identify_gaps()` and friends to inform the user of a possible 
+inconsistency when identifying gaps. 
+* Switched `identify_gaps()` from using the lag of each measurements towards using the lead. This
+makes no difference in the output but is a little easier to read.
+
+## Bug fixes
+* Fixed a note when first running `link()` or `link_gaps()` in a session, stating that using 
+external vectors `dplyr::select()` is ambiguous.
+* `bin_data()` now correctly includes measurements in bins that do not have a stop time. This was in 
+particular a problem with the last measurement of a series.
+* Fixed a non-working example in `bin_data()`.
+* Fixed a bug in `add_gaps()` where multiple gaps in succession (i.e. without other data in between)
+were incorrectly handled.
+* Fixed `app_category()` not  being able to find the exact app name in the search results, thereby 
+defaulting to the `n`th result (default 1).
+
 # mpathsenser 1.1.0
 ## Major changes
 * Added several functions:

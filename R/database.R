@@ -30,28 +30,45 @@ sensors <- c(
 #' @return A database connection using prepared database schemas.
 #' @export
 create_db <- function(path = getwd(), db_name = "sense.db", overwrite = FALSE) {
-  if (!is.character(db_name)) stop("Argument db_name must be a filename")
-  if (!(is.null(path) | is.character(path))) stop("Argument path must be a character string")
+  check_arg(path, "character", n = 1, allow_null = TRUE)
+  check_arg(db_name, "character", n = 1)
+  check_arg(overwrite, "logical", n = 1)
 
   # Merge path and file name
   if (!is.null(path)) {
-    db_name <- suppressWarnings(normalizePath(file.path(path, db_name)))
+    db_name <- normalizePath(file.path(path, db_name), mustWork = FALSE)
   }
 
   # If db already exists, remove it or throw an error
   if (file.exists(db_name)) {
     if (overwrite) {
       tryCatch(file.remove(db_name),
-        warning = function(e) stop(warningCondition(e)),
-        error = function(e) stop(errorCondition(e))
+        warning = function(e) abort(as.character(e)),
+        error = function(e) abort(as.character(e))
       )
     } else {
-      stop(paste("Database", db_name, "already exists. Use overwrite = TRUE to overwrite."))
+      abort(c(
+        paste("Database", db_name, "already exists."),
+        i = " Use overwrite = TRUE to overwrite."
+      ))
     }
   }
 
+  # Check if path exists
+  if (!dir.exists(dirname(db_name))) {
+    abort(paste0("Directory ", dirname(db_name), " does not exist."))
+  }
+
   # Create a new db instance
-  db <- DBI::dbConnect(RSQLite::SQLite(), db_name, cache_size = 8192)
+  tryCatch(
+    {
+      db <- dbConnect(RSQLite::SQLite(), db_name, cache_size = 8192)
+    },
+    error = function(e) {
+      abort(paste0("Could not create a database in ", db_name)) # nocov
+    }
+  )
+
 
   # Populate the db with empty tables
   tryCatch(
@@ -59,12 +76,15 @@ create_db <- function(path = getwd(), db_name = "sense.db", overwrite = FALSE) {
       fn <- system.file("extdata", "dbdef.sql", package = "mpathsenser")
       script <- strsplit(paste0(readLines(fn, warn = FALSE), collapse = "\n"), "\n\n")[[1]]
       for (statement in script) {
-        DBI::dbExecute(db, statement)
+        dbExecute(db, statement)
       }
     },
-    error = function(e) {
-      DBI::dbDisconnect(db)
-      stop(e)
+    error = function(e) { # nocov start
+      dbDisconnect(db)
+      abort(c(
+        "Database definition file not found. The package is probably corrupted.",
+        i = "Please reinstall mpathsenser using `install.packages(\"mpathsenser\")`"
+      )) # nocov end
     }
   )
 
@@ -87,8 +107,8 @@ create_db <- function(path = getwd(), db_name = "sense.db", overwrite = FALSE) {
 #' @return A connection to an mpathsenser database.
 #' @export
 open_db <- function(path = getwd(), db_name = "sense.db") {
-  if (!is.character(db_name)) stop("Argument db_name must be a filename")
-  if (!(is.null(path) | is.character(path))) stop("Argument path must be a character string")
+  check_arg(path, "character", n = 1, allow_null = TRUE)
+  check_arg(db_name, c("character", "integerish"), n = 1)
 
   # Merge path and file name
   if (!is.null(path)) {
@@ -96,12 +116,12 @@ open_db <- function(path = getwd(), db_name = "sense.db") {
   }
 
   if (!file.exists(db_name)) {
-    stop("There is no such file")
+    abort("There is no such file")
   }
-  db <- DBI::dbConnect(RSQLite::SQLite(), db_name, cache_size = 8192)
+  db <- dbConnect(RSQLite::SQLite(), db_name, cache_size = 8192)
   if (!DBI::dbExistsTable(db, "Participant")) {
-    DBI::dbDisconnect(db)
-    stop("Sorry, this does not appear to be a mpathsenser database.")
+    dbDisconnect(db)
+    abort("Sorry, this does not appear to be a mpathsenser database.")
   }
   return(db)
 }
@@ -123,8 +143,8 @@ open_db <- function(path = getwd(), db_name = "sense.db") {
 close_db <- function(db) {
   exists <- try(db, silent = TRUE)
   if (inherits(exists, "SQLiteConnection") && !is.null(db)) {
-    if (DBI::dbIsValid(db)) {
-      DBI::dbDisconnect(db)
+    if (dbIsValid(db)) {
+      dbDisconnect(db)
     }
   }
 }
@@ -139,25 +159,25 @@ close_db <- function(db) {
 #' @return No return value, called for side effects.
 #' @export
 index_db <- function(db) {
-  if (is.null(db) || !DBI::dbIsValid(db)) stop("Database connection is not valid")
+  check_db(db)
 
   tryCatch(
     {
       fn <- system.file("extdata", "indexes.sql", package = "mpathsenser")
       script <- strsplit(paste0(readLines(fn, warn = FALSE), collapse = "\n"), "\n\n")[[1]]
       for (statement in script) {
-        DBI::dbExecute(db, statement)
+        dbExecute(db, statement)
       }
     },
     error = function(e) {
-      stop(e)
+      abort(as.character(e))
     }
   )
 }
 
 vacuum_db <- function(db) {
-  if (is.null(db) || !DBI::dbIsValid(db)) stop("Database connection is not valid")
-  DBI::dbExecute(db, "VACUUM")
+  check_db(db)
+  dbExecute(db, "VACUUM")
 }
 
 #' Copy (a subset of) a database to another database
@@ -165,109 +185,132 @@ vacuum_db <- function(db) {
 #' @description
 #' `r lifecycle::badge("stable")`
 #'
-#' @param from_db A mpathsenser database connection from where the data will be transferred.
-#' @param to_db A mpathsenser database connection where the data will be transferred to. If no
-#' new_db is specified, a path (and possibly a db_name) must be specified for
+#' @param source_db A mpathsenser database connection from where the data will be transferred.
+#' @param target_db A mpathsenser database connection where the data will be transferred to.
 #' \link[mpathsenser]{create_db} to create a new database.
 #' @param sensor A character vector containing one or multiple sensors. See
 #' \code{\link[mpathsenser]{sensors}} for a list of available sensors. Use "All" for all available
 #' sensors.
-#' @param path The path to the database. Use NULL to use the full path name in db_name.
-#' @param db_name The name of the database.
+#' @param path  `r lifecycle::badge("deprecated")`: This argument was used when database
+#'   creation in \code{copy_db} was still supported. As this functionality is deprecated,
+#'   \code{overwrite_db} is now ignored and will be removed in future versions.
+#' @param db_name  `r lifecycle::badge("deprecated")`: Creating new databases on the fly has been
+#'   deprecated as it is better to separate the two functions. You must now create a new database
+#'   using \code{\link[mpathsenser]{create_db}} or reuse an existing one.
 #'
 #' @return No return value, called for side effects.
 #' @export
-copy_db <- function(from_db, to_db = NULL, sensor = "All", path = getwd(), db_name = "sense.db") {
-  if (is.null(from_db) || !DBI::dbIsValid(from_db)) stop("Database connection is not valid")
+copy_db <- function(source_db,
+                    target_db,
+                    sensor = "All",
+                    path = deprecated(),
+                    db_name = deprecated()) {
+  # Handle old database creation functionality
+  if (lifecycle::is_present(path)) {
+    lifecycle::deprecate_warn(
+      when = "1.1.1",
+      what = "copy_db(path)",
+      details = c(
+        i = "Please create a database using `create_db()` first."
+      )
+    )
+  }
+  if (lifecycle::is_present(db_name)) {
+    lifecycle::deprecate_stop(
+      when = "1.1.1",
+      what = "copy_db(db_name)",
+      details = c(
+        i = "Please create a database using `create_db()` first."
+      )
+    )
+  }
+
+  check_db(source_db, arg = "source_db")
+  check_db(target_db, arg = "target_db")
+  check_arg(sensor, "character")
+
   # Check sensors
   if (length(sensor) == 1 && sensor == "All") {
     sensor <- sensors
   } else {
     missing <- sensor[!(sensor %in% sensors)]
     if (length(missing) != 0) {
-      stop(paste0("Sensor(s) ", paste0(missing, collapse = ", "), " not found."))
-    }
-  }
-
-  # If no new database is specified, create a new one
-  no_db_specified <- FALSE
-  if (is.null(to_db)) {
-    no_db_specified <- TRUE
-
-    if (!file.exists(file.path(path, db_name))) {
-      to_db <- create_db(path, db_name)
-      message(paste0("New database created in ", file.path(path, db_name)))
-    } else {
-      stop(paste0(
-        "A file in ", path, " with the name ", db_name, " already exists. Please choose ",
-        "a different name or path or remove the file."
-      ))
+      abort(paste0("Sensor(s) ", paste0(missing, collapse = ", "), " not found."))
     }
   }
 
   # Attach new database to old database
-  DBI::dbExecute(from_db, paste0("ATTACH DATABASE '", to_db@dbname, "' AS new_db"))
+  dbExecute(source_db, paste0("ATTACH DATABASE '", target_db@dbname, "' AS new_db"))
 
   # Copy participants, studies, processed_files
-  DBI::dbExecute(from_db, "INSERT OR IGNORE INTO new_db.Study SELECT * FROM Study")
-  DBI::dbExecute(from_db, "INSERT OR IGNORE INTO new_db.Participant SELECT * FROM Participant")
-  DBI::dbExecute(
-    from_db,
+  dbExecute(source_db, "INSERT OR IGNORE INTO new_db.Study SELECT * FROM Study")
+  dbExecute(source_db, "INSERT OR IGNORE INTO new_db.Participant SELECT * FROM Participant")
+  dbExecute(
+    source_db,
     "INSERT OR IGNORE INTO new_db.ProcessedFiles SELECT * FROM ProcessedFiles"
   )
 
 
   # Copy all specified sensors
   for (i in seq_along(sensor)) {
-    DBI::dbExecute(from_db, paste0(
+    dbExecute(source_db, paste0(
       "INSERT OR IGNORE INTO new_db.", sensor[i],
       " SELECT * FROM ", sensor[i]
     ))
   }
 
   # Detach
-  DBI::dbExecute(from_db, "DETACH DATABASE new_db")
-
-  if (no_db_specified) {
-    close_db(to_db)
-  }
+  dbExecute(source_db, "DETACH DATABASE new_db")
 
   return(invisible(TRUE))
 }
 
-add_study <- function(db, data) {
-  DBI::dbExecute(
+add_study <- function(db, study_id, data_format) {
+  check_db(db)
+
+  dbExecute(
     db,
-    "INSERT OR IGNORE INTO Study(study_id, data_format)
-  VALUES(:study_id, :data_format);",
-    list(study_id = data$study_id, data_format = data$data_format)
+    paste(
+      "INSERT OR IGNORE INTO Study(study_id, data_format)",
+      "VALUES(:study_id, :data_format);"
+    ),
+    list(study_id = study_id, data_format = data_format)
   )
 }
 
-add_participant <- function(db, data) {
-  DBI::dbExecute(
+add_participant <- function(db, participant_id, study_id) {
+  check_db(db)
+
+  dbExecute(
     db,
-    "INSERT OR IGNORE INTO Participant(participant_id, study_id)
-  VALUES(:participant_id, :study_id);",
-    list(participant_id = data$participant_id, study_id = data$study_id)
+    paste(
+      "INSERT OR IGNORE INTO Participant(participant_id, study_id)",
+      "VALUES(:participant_id, :study_id);"
+    ),
+    list(participant_id = participant_id, study_id = study_id)
   )
 }
 
-add_processed_files <- function(db, data) {
-  DBI::dbExecute(
+add_processed_files <- function(db, file_name, study_id, participant_id) {
+  check_db(db)
+
+  dbExecute(
     db,
-    "INSERT OR IGNORE INTO ProcessedFiles(file_name, study_id, participant_id)
-  VALUES(:file_name, :study_id, :participant_id);",
+    paste(
+      "INSERT OR IGNORE INTO ProcessedFiles(file_name, study_id, participant_id)",
+      "VALUES(:file_name, :study_id, :participant_id);"
+    ),
     list(
-      file_name = data$file_name,
-      study_id = data$study_id,
-      participant_id = data$participant_id
+      file_name = file_name,
+      study_id = study_id,
+      participant_id = participant_id
     )
   )
 }
 
 clear_sensors_db <- function(db) {
-  res <- lapply(sensors, function(x) DBI::dbExecute(db, paste0("DELETE FROM ", x, " WHERE 1;")))
+  check_db(db)
+  res <- lapply(sensors, function(x) dbExecute(db, paste0("DELETE FROM ", x, " WHERE 1;")))
   names(res) <- sensors
   res
 }
@@ -286,7 +329,8 @@ clear_sensors_db <- function(db) {
 #' of the processed files.
 #' @export
 get_processed_files <- function(db) {
-  if (!DBI::dbIsValid(db)) stop("Database connection is not valid")
+  check_db(db)
+
   DBI::dbReadTable(db, "ProcessedFiles")
 }
 
@@ -301,7 +345,9 @@ get_processed_files <- function(db) {
 #' @return A data frame containing all \code{participant_id} and \code{study_id}.
 #' @export
 get_participants <- function(db, lazy = FALSE) {
-  if (!DBI::dbIsValid(db)) stop("Database connection is not valid")
+  check_db(db)
+  check_arg(lazy, "logical", n = 1)
+
   if (lazy) {
     dplyr::tbl(db, "Participant")
   } else {
@@ -320,7 +366,9 @@ get_participants <- function(db, lazy = FALSE) {
 #' @return A data frame containing all studies.
 #' @export
 get_studies <- function(db, lazy = FALSE) {
-  if (!DBI::dbIsValid(db)) stop("Database connection is not valid")
+  check_db(db)
+  check_arg(lazy, "logical", n = 1)
+
   if (lazy) {
     dplyr::tbl(db, "Study")
   } else {
@@ -348,17 +396,21 @@ get_studies <- function(db, lazy = FALSE) {
 #'
 #' @return A named vector containing the number of rows for each sensor.
 #' @export
-get_nrows <- function(db, sensor = "All", participant_id = NULL, start_date = NULL,
+get_nrows <- function(db,
+                      sensor = "All",
+                      participant_id = NULL,
+                      start_date = NULL,
                       end_date = NULL) {
-  if (!DBI::dbIsValid(db)) stop("Database connection is not valid")
+  check_db(db)
+  check_arg(sensor, "character", allow_null = TRUE)
 
-  if (sensor[[1]] == "All") {
+  if (is.null(sensor) || sensor[[1]] == "All") {
     sensor <- sensors
   }
 
-  sapply(sensor, function(x) {
+  vapply(sensor, function(x) {
     get_data(db, x, participant_id, start_date, end_date) %>%
       dplyr::count() %>%
-      dplyr::pull(n)
-  })
+      pull(n)
+  }, integer(1))
 }
