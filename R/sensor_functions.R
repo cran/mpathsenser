@@ -20,7 +20,7 @@
 #'   to date using \link[base]{as.Date}. Use \link[mpathsenser]{last_date} to find the date of the
 #'   last entry for a participant.
 #'
-#' @return A lazy \code{\link[dplyr]{tbl}} containing the requested data.
+#' @returns A lazy \code{\link[dplyr]{tbl}} containing the requested data.
 #' @export
 #'
 #' @examples
@@ -37,16 +37,17 @@
 get_data <- function(db, sensor, participant_id = NULL, start_date = NULL, end_date = NULL) {
   check_db(db)
   check_sensors(sensor, n = 1)
-  check_arg(participant_id, type = c("character", "integerish"), n = 1, allow_null = TRUE)
+  check_arg(participant_id, type = c("character", "integerish"), allow_null = TRUE)
   check_arg(sensor, "character", n = 1)
   check_arg(start_date, type = c("character", "POSIXt"), n = 1, allow_null = TRUE)
   check_arg(end_date, type = c("character", "POSIXt"), n = 1, allow_null = TRUE)
 
+  sensor <- tolower(sensor)
   out <- dplyr::tbl(db, sensor)
 
   if (!is.null(participant_id)) {
     p_id <- as.character(participant_id)
-    out <- filter(out, participant_id == p_id)
+    out <- filter(out, .data$participant_id %in% p_id)
   }
 
   maybe_date <- function(x) {
@@ -54,11 +55,11 @@ get_data <- function(db, sensor, participant_id = NULL, start_date = NULL, end_d
   }
 
   if (!is.null(start_date) && maybe_date(start_date)) {
-    out <- filter(out, date >= start_date)
+    out <- filter(out, .data$date >= start_date)
   }
 
   if (!is.null(end_date) && maybe_date(end_date)) {
-    out <- filter(out, date <= end_date)
+    out <- filter(out, .data$date <= end_date)
   }
 
   out
@@ -76,7 +77,7 @@ get_data <- function(db, sensor, participant_id = NULL, start_date = NULL, end_d
 #'
 #' @inheritParams get_data
 #'
-#' @return A string in the format 'YYYY-mm-dd' of the first entry date.
+#' @returns A string in the format 'YYYY-mm-dd' of the first entry date.
 #' @export
 #'
 #' @examples
@@ -108,7 +109,7 @@ first_date <- function(db, sensor, participant_id = NULL) {
 #'
 #' @inheritParams get_data
 #'
-#' @return A string in the format 'YYYY-mm-dd' of the last entry date.
+#' @returns A string in the format 'YYYY-mm-dd' of the last entry date.
 #' @export
 #'
 #' @examples
@@ -142,7 +143,7 @@ last_date <- function(db, sensor, participant_id = NULL) {
 #' \code{\link[mpathsenser]{get_participants}} to retrieve all participants from the database.
 #' Leave empty to get data for all participants.
 #'
-#' @return A tibble containing app names.
+#' @returns A tibble containing app names.
 #' @export
 installed_apps <- function(db, participant_id = NULL) {
   check_db(db)
@@ -179,7 +180,7 @@ installed_apps <- function(db, participant_id = NULL) {
 #' between requests seems to be around 5 seconds, but this is untested. Also make sure not to do
 #' batch lookups, as many subsequent requests will get you blocked as well.
 #'
-#' @return A list containing the following fields:
+#' @returns A list containing the following fields:
 #'
 #' \tabular{ll}{
 #'   package \tab the package name that was selected from the Google Play search \cr
@@ -300,11 +301,27 @@ app_category_impl <- function(name, num, exact) {
   list(package = gsub("^.+?(?<=\\?id=)", "", link, perl = TRUE), genre = genre)
 }
 
+#' Get the device info for one or more participants
+#'
+#' @description
+#' `r lifecycle::badge("stable")`
+#'
+#' @inheritParams get_data
+#'
+#' @returns A tibble containing device info for each participant
+#' @export
+device_info <- function(db, participant_id = NULL) {
+  get_data(db, "Device", participant_id = participant_id) %>%
+    select("participant_id", "device_id":"platform") %>%
+    distinct() %>%
+    collect()
+}
+
 # nocov start
 #' Get app usage per hour
 #'
 #' @description
-#' `r lifecycle::badge("experimental")`
+#' `r lifecycle::badge("deprecated")`
 #'
 #' This function extracts app usage per hour for either one or multiple participants. If multiple
 #' days are selected, the app usage time is averaged.
@@ -312,13 +329,22 @@ app_category_impl <- function(name, num, exact) {
 #' @inheritParams get_data
 #' @param by Either 'Total', 'Hour', or 'Day' indicating how to summarise the results.
 #'
-#' @return A data frame containing a column 'app' and a column 'usage' for the hourly app usage.
+#' @returns A data frame containing a column 'app' and a column 'usage' for the hourly app usage.
 #' @keywords internal
 app_usage <- function(db,
                       participant_id = NULL,
                       start_date = NULL,
                       end_date = NULL,
                       by = c("Total", "Day", "Hour")) {
+
+  lifecycle::deprecate_stop(when = "1.1.2",
+                            what = "app_usage()",
+                            details = c(
+                              i = paste("`app_usage()` is defunctional for now, as it",
+                                        "is unclear how this function should behave."),
+                              i = "It will be reimplemented in mpathsenser 2.0.0."
+                            ))
+
   check_db(db)
   check_arg(by, "character", n = 1)
 
@@ -368,7 +394,7 @@ app_usage <- function(db,
 #' Get a summary of physical activity (recognition)
 #'
 #' @description
-#' `r lifecycle::badge("experimental")`
+#' `r lifecycle::badge("deprecated")`
 #'
 #' @inheritParams get_data
 #' @param data A data frame containing the activity data. See \link[mpathsenser]{get_data} for
@@ -379,7 +405,7 @@ app_usage <- function(db,
 #' \eqn{t_{t+1} - t}.
 #' @param by Either 'Total', 'Hour', or 'Day' indicating how to summarise the results.
 #'
-#' @return A tibble containing a column 'activity' and a column 'duration' for the hourly
+#' @returns A tibble containing a column 'activity' and a column 'duration' for the hourly
 #' activity duration.
 #' @keywords internal
 activity_duration <- function(data = NULL,
@@ -390,6 +416,14 @@ activity_duration <- function(data = NULL,
                               start_date = NULL,
                               end_date = NULL,
                               by = c("Total", "Day", "Hour")) {
+  lifecycle::deprecate_stop(when = "1.1.2",
+                            what = "activity_duration()",
+                            details = c(
+                              i = paste("`activity_duration()` is defunctional for now, as it",
+                                        "is unclear how this function should behave."),
+                              i = "It will be reimplemented in mpathsenser 2.0.0."
+                            ))
+
   check_arg(data, "data.frame", allow_null = TRUE)
   check_db(db, allow_null = TRUE)
   check_arg(confidence, "numeric", n = 1)
@@ -440,25 +474,7 @@ activity_duration <- function(data = NULL,
     summarise(duration = sum(.data$duration, na.rm = TRUE), .groups = "drop") %>%
     collect()
 }
-# nocov end
 
-#' Get the device info for one or more participants
-#'
-#' @description
-#' `r lifecycle::badge("stable")`
-#'
-#' @inheritParams get_data
-#'
-#' @return A tibble containing device info for each participant
-#' @export
-device_info <- function(db, participant_id = NULL) {
-  get_data(db, "Device", participant_id = participant_id) %>%
-    select("participant_id", "device_id":"platform") %>%
-    distinct() %>%
-    collect()
-}
-
-# nocov start
 compress_activity <- function(data, direction = "forward") {
   data %>%
     arrange("date", "time") %>%
@@ -468,7 +484,7 @@ compress_activity <- function(data, direction = "forward") {
 #' Screen duration by hour or day
 #'
 #' @description
-#' `r lifecycle::badge("experimental")`
+#' `r lifecycle::badge("deprecated")`
 #'
 #' Calculate the screen duration time where the screen was _unlocked_ (i.e. not just on).
 #'
@@ -476,7 +492,7 @@ compress_activity <- function(data, direction = "forward") {
 #' @param by Either 'Hour' or 'Day' indicating how to summarise the results. Leave empty to get raw
 #' screen duration per measurement.
 #'
-#' @return A tibble with either 'hour' and 'duration' columns or 'date' and 'duration' columns
+#' @returns A tibble with either 'hour' and 'duration' columns or 'date' and 'duration' columns
 #' depending on the \code{by} argument. Alternatively, if no \code{by} is specified, a remote
 #' tibble is returned with the date, time, and duration since the previous measurement.
 #' @keywords internal
@@ -485,7 +501,14 @@ screen_duration <- function(db,
                             start_date = NULL,
                             end_date = NULL,
                             by = c("Hour", "Day")) {
-  lifecycle::signal_stage("experimental", "screen_duration()")
+  lifecycle::deprecate_stop(when = "1.1.2",
+                            what = "screen_duration()",
+                            details = c(
+                              i = paste("`screen_duration()` is defunctional for now, as it",
+                                        "is unclear how this function should behave."),
+                              i = "It will be reimplemented in mpathsenser 2.0.0."
+                            ))
+
   check_db(db)
   check_arg(by, "character", n = 1, allow_null = TRUE)
 
@@ -530,13 +553,13 @@ screen_duration <- function(db,
 #' Get number of times screen turned on
 #'
 #' @description
-#' `r lifecycle::badge("experimental")`
+#' `r lifecycle::badge("deprecated")`
 #'
 #' @inheritParams get_data
 #' @param by Either 'Total', 'Hour', or 'Day' indicating how to summarise the results. Defaults to
 #' total.
 #'
-#' @return In case grouping is by the total amount, returns a single numeric value. For date and
+#' @returns In case grouping is by the total amount, returns a single numeric value. For date and
 #' hour grouping returns a tibble with columns 'date' or 'hour' and the number of screen on's 'n'.
 #' @keywords internal
 n_screen_on <- function(db,
@@ -544,53 +567,32 @@ n_screen_on <- function(db,
                         start_date = NULL,
                         end_date = NULL,
                         by = c("Total", "Hour", "Day")) {
-  lifecycle::signal_stage("experimental", "n_screen_on()")
-
-  check_db(db)
-  check_arg(by, "character", n = 1, allow_null = TRUE)
-
-  out <- get_data(db, "Screen", participant_id, start_date, end_date) %>%
-    select(-c("measurement_id", "participant_id")) %>%
-    filter(.data$screen_event == "SCREEN_ON")
-
-  if (is.null(by)) {
-    out <- out %>%
-      summarise(n = n()) %>%
-      pull("n")
-  } else if (by[1] == "Total" || by[1] == "total") {
-    out <- out %>%
-      summarise(n = n()) %>%
-      pull("n")
-  } else if (by[1] == "Hour" || by[1] == "hour") {
-    out <- out %>%
-      mutate(hour = strftime("%H", .data$time)) %>%
-      dplyr::count(.data$hour) %>%
-      collect() %>%
-      mutate(hour = as.numeric(.data$hour)) %>%
-      complete(hour = 0:23, fill = list(n = 0))
-  } else if (by[1] == "Day" || by[1] == "day") {
-    out <- out %>%
-      dplyr::count(.data$date) %>%
-      collect()
-  } else {
-    # Default case
-    out <- out %>%
-      summarise(n = n()) %>%
-      pull("n")
-  }
-  return(out)
+  # lifecycle::deprecate_stop(when = "1.1.2",
+  #                           what = "n_screen_on()",
+  #                           with = "screen_on()",
+  #                           details = c(
+  #                             i = paste("Note that the functionality of `screen_on()`",
+  #                                       "has changed significantly.")
+  #                           ))
+  lifecycle::deprecate_stop(when = "1.1.2",
+                            what = "n_screen_on()",
+                            details = c(
+                              i = paste("`n_screen_on()` is defunctional for now, as it",
+                                        "is unclear how this function should behave."),
+                              i = "It will be reimplemented in mpathsenser 2.0.0."
+                            ))
 }
 
 #' Get number of screen unlocks
 #'
 #' @description
-#' `r lifecycle::badge("experimental")`
+#' `r lifecycle::badge("deprecated")`
 #'
 #' @inheritParams get_data
 #' @param by Either 'Total', 'Hour', or 'Day' indicating how to summarise the results. Defaults to
 #' total.
 #'
-#' @return In case grouping is by the total amount, returns a single numeric value. For date and
+#' @returns In case grouping is by the total amount, returns a single numeric value. For date and
 #' hour grouping returns a tibble with columns 'date' or 'hour' and the number of screen unlocks
 #' 'n'.
 #' @keywords internal
@@ -599,57 +601,42 @@ n_screen_unlocks <- function(db,
                              start_date = NULL,
                              end_date = NULL,
                              by = c("Total", "Hour", "Day")) {
-  lifecycle::signal_stage("experimental", "n_screen_unlocks()")
-
-  check_db(db)
-  check_arg(by, "character", n = 1, allow_null = TRUE)
-
-  out <- get_data(db, "Screen", participant_id, start_date, end_date) %>%
-    select(-c("measurement_id", "participant_id")) %>%
-    filter(.data$screen_event == "SCREEN_UNLOCKED")
-
-  if (is.null(by)) {
-    out <- out %>%
-      summarise(n = n()) %>%
-      pull("n")
-  } else if (by[1] == "Total" || by[1] == "total") {
-    out <- out %>%
-      summarise(n = n()) %>%
-      pull("n")
-  } else if (by[1] == "Hour" || by[1] == "hour") {
-    out <- out %>%
-      mutate(hour = strftime("%H", .data$time)) %>%
-      dplyr::count(.data$hour) %>%
-      collect() %>%
-      mutate(hour = as.numeric(.data$hour)) %>%
-      complete(hour = 0:23, fill = list(n = 0))
-  } else if (by[1] == "Day" || by[1] == "day") {
-    out <- out %>%
-      dplyr::count(.data$date) %>%
-      collect()
-  } else {
-    # Default case
-    out <- out %>%
-      summarise(n = n()) %>%
-      pull("n")
-  }
-  return(out)
+  # lifecycle::deprecate_stop(when = "1.1.2",
+  #                           what = "n_screen_unlocks()",
+  #                           with = "screen_unlocks()",
+  #                           details = c(
+  #                             i = paste("Note that the functionality of `screen_unlocks()`",
+  #                                       "has changed significantly.")
+  #                           ))
+  lifecycle::deprecate_stop(when = "1.1.2",
+                            what = "n_screen_unlocks()",
+                            details = c(
+                              i = paste("`n_screen_unlocks()` is defunctional for now, as it",
+                                        "is unclear how this function should behave."),
+                              i = "It will be reimplemented in mpathsenser 2.0.0."
+                            ))
 }
 
 
 #' Get step count
 #'
 #' @description
-#' `r lifecycle::badge("experimental")`
+#' `r lifecycle::badge("deprecated")`
 #'
 #' Extracts the number of steps per hour as sensed by the underlying operating system.
 #'
 #' @inheritParams get_data
 #'
-#' @return A tibble with the 'date', 'hour', and the number of 'steps'.
+#' @returns A tibble with the 'date', 'hour', and the number of 'steps'.
 #' @keywords internal
 step_count <- function(db, participant_id = NULL, start_date = NULL, end_date = NULL) {
-  lifecycle::signal_stage("experimental", "step_count()")
+  lifecycle::deprecate_stop(when = "1.1.2",
+                            what = "step_count()",
+                            details = c(
+                              i = paste("`step_count()` is defunctional for now, as it",
+                                        "is unclear how this function should behave."),
+                              i = "It will be reimplemented in mpathsenser 2.0.0."
+                            ))
   check_db(db)
 
   get_data(db, "Pedometer", participant_id, start_date, end_date) %>%
@@ -675,7 +662,7 @@ step_count <- function(db, participant_id = NULL, start_date = NULL, end_date = 
 #'   to the rolling window of observations.
 #' @param participant_id A character vector identifying one or multiple participants.
 #'
-#' @return A tibble with the same columns as the input, modified to be a moving average.
+#' @returns A tibble with the same columns as the input, modified to be a moving average.
 #' @export
 #'
 #' @examples
@@ -695,26 +682,28 @@ moving_average <- function(db,
                            sensor,
                            cols,
                            n,
-                           participant_id,
+                           participant_id = NULL,
                            start_date = NULL,
                            end_date = NULL) {
   lifecycle::signal_stage("experimental", "moving_average()")
   check_db(db)
   check_sensors(sensor, n = 1)
-  check_arg(participant_id, c("character", "integerish"))
+  check_arg(cols, "character")
+  check_arg(n, "numeric")
+  check_arg(participant_id, c("character", "integerish"), allow_null = TRUE)
   check_arg(start_date, c("character", "POSIXt"), n = 1, allow_null = TRUE)
   check_arg(end_date, c("character", "POSIXt"), n = 1, allow_null = TRUE)
 
   # SELECT
-  query <- "SELECT participant_id, datetime, "
+  query <- "SELECT `participant_id`, `datetime`, "
 
   # Calculate moving average
   avgs <- lapply(cols, function(x) {
     paste0(
       "avg(`", x, "`) OVER (",
       "PARTITION BY `participant_id` ",
-      "ORDER BY CAST (strftime('%s', datetime) AS INT) ",
-      "RANGE BETWEEN ", n / 2, " PRECEDING ", "AND ", n / 2, " FOLLOWING", ") AS ", x
+      "ORDER BY UNIXEPOCH(`datetime`) ",
+      "RANGE BETWEEN ", n / 2, " PRECEDING ", "AND ", n / 2, " FOLLOWING", ") AS `", x, "`"
     )
   })
 
@@ -723,16 +712,18 @@ moving_average <- function(db,
 
   # FROM
   query <- paste0(
-    query, " FROM (SELECT participant_id, `date` || 'T' || `time` AS `datetime`, ",
-    paste0(cols, collapse = ", "), " FROM ", sensor
+    query, " FROM (SELECT `participant_id`, `date` || 'T' || `time` AS `datetime`, ",
+    paste0("`", cols, "`", collapse = ", "), " FROM `", sensor, "`"
   )
 
   # Where
-  query <- paste0(
-    query, " WHERE (",
-    paste0("`participant_id` = '", participant_id, "'", collapse = " OR "),
-    ")"
-  )
+  if (!is.null(participant_id)) {
+    query <- paste0(
+      query, " WHERE (",
+      paste0("`participant_id` = '", participant_id, "'", collapse = " OR "),
+      ")"
+    )
+  }
 
   if (!is.null(start_date) && !is.null(end_date)) {
     query <- paste0(query, " AND (`date` BETWEEN '", start_date, "' AND '", end_date, "')")
@@ -742,7 +733,7 @@ moving_average <- function(db,
   query <- paste0(query, ")")
 
   # Get data
-  tibble::as_tibble(DBI::dbGetQuery(db, query))
+  dplyr::tbl(db, dplyr::sql(query))
 }
 
 
@@ -782,13 +773,15 @@ moving_average <- function(db,
 #'   than you want and then afterwards increasing the start time of the gaps by 5 seconds.
 #'
 #' @inheritParams get_data
+#' @param sensor One or multiple sensors. See \link[mpathsenser]{sensors} for a list of available
+#'   sensors.
 #' @param min_gap The minimum time (in seconds) passed between two subsequent measurements for it to
 #'   be considered a gap.
 #'
-#' @return A tibble containing the time period of the gaps. The structure of this tibble is as
+#' @returns A tibble containing the time period of the gaps. The structure of this tibble is as
 #'   follows:
 #'
-#'   \tabular{ll}{ participant_id \tab the \code{participant_id} of where the gap occurred \cr from
+#'   \tabular{ll}{ participant_id \tab the `participant_id` of where the gap occurred \cr from
 #'   \tab the time of the last measurement before the gap \cr to             \tab the time of the
 #'   first measurement after the gap \cr gap            \tab the time passed between from and to, in
 #'   seconds }
@@ -834,11 +827,11 @@ identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Acc
 
   # Then, calculate the gap duration
   data %>%
+    dbplyr::window_order(.data$participant_id, .data$datetime) %>%
     group_by(.data$participant_id) %>%
-    window_order("datetime") %>%
     mutate(to = lead(.data$datetime)) %>%
     ungroup() %>%
-    mutate(gap = strftime("%s", .data$to) - strftime("%s", .data$datetime)) %>%
+    mutate(gap = UNIXEPOCH(.data$to) - UNIXEPOCH(.data$datetime)) %>%
     filter(.data$gap >= min_gap) %>%
     select("participant_id", from = "datetime", "to", "gap") %>%
     collect()
@@ -849,39 +842,39 @@ identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Acc
 #'
 #' @description `r lifecycle::badge("stable")`
 #'
-#'  Since there may be many gaps in mobile sensing data, it is pivotal to pay attention in the
-#'  analysis to them. This function adds known gaps to data as "measurements", thereby allowing
-#'  easier calculations for, for example, finding the duration. For instance, consider a participant
-#'  spent 30 minutes walking. However, if it is known there is gap of 15 minutes in this interval,
-#'  we should somehow account for it. \code{add_gaps} accounts for this by adding the gap data to
-#'  sensors data by splitting intervals where gaps occur.
+#'   Since there may be many gaps in mobile sensing data, it is pivotal to pay attention to them in
+#'   the analysis. This function adds known gaps to data as "measurements", thereby allowing easier
+#'   calculations for, for example, finding the duration. For instance, consider a participant spent
+#'   30 minutes walking. However, if it is known there is gap of 15 minutes in this interval, we
+#'   should somehow account for it. `add_gaps` accounts for this by adding the gap data to
+#'   sensors data by splitting intervals where gaps occur.
 #'
 #' @details In the example of 30 minutes walking where a 15 minute gap occurred (say after 5
-#'  minutes), \code{add_gaps} adds two rows: one after 5 minutes of the start of the interval
-#'  indicating the start of the gap(if needed containing values from \code{fill}), and one after 20
-#'  minutes of the start of the interval signalling the walking activity. Then, when calculating
-#'  time differences between subsequent measurements, the gap period is appropriately accounted for.
-#'  Note that if multiple measurements occurred before the gap, they will both be continued after
-#'  the gap.
+#'   minutes), `add_gaps()` adds two rows: one after 5 minutes of the start of the interval
+#'   indicating the start of the gap(if needed containing values from `fill`), and one after 20
+#'   minutes of the start of the interval signalling the walking activity. Then, when calculating
+#'   time differences between subsequent measurements, the gap period is appropriately accounted
+#'   for. Note that if multiple measurements occurred before the gap, they will both be continued
+#'   after the gap.
 #'
 #' @inheritSection identify_gaps Warning
 #'
-#' @param data A data frame containing the activity data. See \link[mpathsenser]{get_data} for
-#'  retrieving activity data from an mpathsenser database.
-#' @param gaps A data frame (extension) containing the gap data. See
-#'  \link[mpathsenser]{identify_gaps} for retrieving gap data from an mpathsenser database. It
-#'  should at least contain the columns \code{from} and \code{to} (both in a date-time format), as
-#'  well as any specified columns in \code{by}.
+#' @param data A data frame containing the data. See [get_data()] for retrieving data from an
+#'   mpathsenser database.
+#' @param gaps A data frame (extension) containing the gap data. See [identify_gaps()] for
+#'   retrieving gap data from an mpathsenser database. It should at least contain the columns `from`
+#'   and `to` (both in a date-time format), as well as any specified columns in `by`.
 #' @param by A character vector indicating the variable(s) to match by, typically the participant
-#'  IDs. If NULL, the default, \code{*_join()} will perform a natural join, using all variables in
-#'  common across \code{x} and \code{y}.
+#'   IDs. If NULL, the default, `*_join()` will perform a natural join, using all variables in
+#'   common across `x and `y`.
+#' @param continue Whether to continue the measurement(s) prior to the gap once the gap ends.
 #' @param fill A named list of the columns to fill with default values for the extra measurements
-#'  that are added because of the gaps.
+#'   that are added because of the gaps.
 #'
-#' @seealso \code{\link[mpathsenser]{identify_gaps}} for finding gaps in the sampling;
-#'  \code{\link[mpathsenser]{link_gaps}} for finding which gaps occur in the data;
+#' @seealso [identify_gaps()] for finding gaps in the sampling; [link_gaps()] for linking gaps to
+#'   ESM data, analogous to [link()].
 #'
-#' @return A tibble containing the data and the added gaps.
+#' @returns A tibble containing the data and the added gaps.
 #' @export
 #'
 #' @examples
@@ -897,7 +890,7 @@ identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Acc
 #' gaps <- data.frame(
 #'   participant_id = "12345",
 #'   from = as.POSIXct(c("2022-05-10 10:05:00", "2022-05-10 10:50:00")),
-#'   to = as.POSIXct(c("2022-05-10 10:20:00", "2022-05-10 10:10:00"))
+#'   to = as.POSIXct(c("2022-05-10 10:20:00", "2022-05-10 11:10:00"))
 #' )
 #'
 #' # Now add the gaps to the data
@@ -914,10 +907,12 @@ identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Acc
 #'   by = "participant_id",
 #'   fill = list(type = "GAP", confidence = 100)
 #' )
-add_gaps <- function(data, gaps, by = NULL, fill = NULL) {
+add_gaps <- function(data, gaps, by = NULL, continue = FALSE, fill = NULL) {
   check_arg(data, "data.frame")
   check_arg(gaps, "data.frame")
   check_arg(by, "character", allow_null = TRUE)
+  check_arg(continue, "logical")
+  check_arg(fill, "list", allow_null = TRUE)
 
   if (!is.null(by)) {
     err <- try(
@@ -934,6 +929,25 @@ add_gaps <- function(data, gaps, by = NULL, fill = NULL) {
         " must be present in both `data` and `gaps`."
       ))
     }
+
+    # Remove gaps that do not occur in the data based on the `by` column
+    gaps <- dplyr::semi_join(gaps, data, by = rlang::as_name(rlang::enquo(by)))
+  }
+
+  # If we don't want to continue the previous measurement after the gap, we can simply add the
+  # gaps to the data and sort
+  if (!continue) {
+    gaps <- gaps %>%
+      select({{ by }}, time = "from") %>%
+      mutate(!!!fill)
+
+    data <- data %>%
+      bind_rows(gaps) %>%
+      arrange(across(c({{ by }}, "time"))) %>%
+      distinct() %>%
+      tibble::as_tibble() # Ensure consistent output format
+
+    return(data)
   }
 
   # Pour the gaps in a different format so that they can be added to the sensor data as
@@ -949,7 +963,7 @@ add_gaps <- function(data, gaps, by = NULL, fill = NULL) {
       names_to = "gap_type",
       values_to = "time"
     ) %>%
-    rlang::exec(.fn = mutate, !!!fill) %>%
+    mutate(!!!fill) %>%
     mutate(across(names(fill), ~ ifelse(gap_type == "to", NA, .x)))
 
   # Assign groups numbers to the data based on their time stamp and by column In principle, each row
@@ -983,61 +997,72 @@ add_gaps <- function(data, gaps, by = NULL, fill = NULL) {
   lead_data <- data %>%
     select(-"time")
 
-  data %>%
-    # Add the gaps to the data
-    bind_rows(prepared_gaps) %>%
-    # Sort the data to get the correct order, i.e. measurement followed by their respective gaps.
-    arrange(across(c({{ by }}, "time"))) %>%
-    # As in the example above, fill the row_ids belonging to the data downwards to each gap. By
-    # doing this, each gap (no matter how many following the measurement) is now associated with the
-    # previous measurement, solving the multiple-gap-problem.
-    tidyr::fill("row_id", .direction = "down") %>%
-    # Then, nest confidence and type by time to calculate the "lag - 2" for the end of gaps "to".
-    # This is necessary because if two measurements at the same time were present just before the
-    # gap, they should also both continue after the gap.
-    #
-    # Note: The code below is equivalent to
-    # group_by(participant_id, time, gap_type, gap_id) %>%
-    # nest() %>%
-    # ungroup() %>%
-    # or
-    # group_by(across(c({{ by }}, .data$time))) %>%
-    # nest(data = !c(.data$gap_id, .data$gap_type, .data$row_id)) %>%
-    # ungroup() %>%
-    #
-    # This means that if there is a (or multiple) measurement of the same participant at the same
-    # time and also the start or end of a gap (gap_type "from" or "to"), there will two groups: one
-    # with the measurements that are not the gap, and one with the gap measurement, while both
-    # having the same participant_id and time stamp. For example:
-    #
-    # participant_id  time      type    gap_type  gap_id  row_id
-    # 12345           10:00:00  STILL   NA        NA      1
-    # 12345           10:00:00  ACTIVE  NA        NA      1
-    # 12345           10:00:00  GAP     from      1       2
-    #
-    # Nesting then results in the following:
-    # participant_id  time    gap_type  gap_id  row_id  data
-    # 12345           10:00:00   NA        NA      1     <tibble [2 × 1]>
-    # 12345           10:00:00   from      1       2     <tibble [1 × 1]>
-    #
-    # Creating the from_lag column as below, it would mean that row 2 would get the data  from row
-    # 1, which is intended behaviour. If all 3 rows would be nested in the same tibble, we would get
-    # the measurement before that in from_lag, even though there were more recent measurements.
-    # Besides, any other nesting would inevitably include gap_type and gap_id in the nested tibble,
-    # breaking the code.
-    nest(data = !c({{ by }}, "time", "gap_id", "gap_type", "row_id")) %>%
-    # Now, match the data (without the gaps) to each corresponding row_id. Thus, in some cases data
-    # and data2 will be identical. Only for the end points of gaps, set data to data2.
-    dplyr::nest_join(lead_data, by = c("participant_id", "row_id"), name = "data2") %>%
+  # Add the gaps to the data
+  data <- bind_rows(data, prepared_gaps)
+
+  # Sort the data to get the correct order, i.e. measurement followed by their respective gaps.
+  data <- arrange(data, across(c({{ by }}, "time")))
+
+  # As in the example above, fill the row_ids belonging to the data downwards to each gap. By
+  # doing this, each gap (no matter how many following the measurement) is now associated with the
+  # previous measurement, solving the multiple-gap-problem.
+  data <- tidyr::fill(data, "row_id", .direction = "down")
+
+  # Then, nest confidence and type by time to calculate the "lag - 2" for the end of gaps "to".
+  # This is necessary because if two measurements at the same time were present just before the
+  # gap, they should also both continue after the gap.
+  #
+  # Note: The code below is equivalent to
+  # group_by(participant_id, time, gap_type, gap_id) %>%
+  # nest() %>%
+  # ungroup() %>%
+  # or
+  # group_by(across(c({{ by }}, .data$time))) %>%
+  # nest(data = !c(.data$gap_id, .data$gap_type, .data$row_id)) %>%
+  # ungroup() %>%
+  #
+  # This means that if there is a (or multiple) measurement of the same participant at the same
+  # time and also the start or end of a gap (gap_type "from" or "to"), there will two groups: one
+  # with the measurements that are not the gap, and one with the gap measurement, while both
+  # having the same participant_id and time stamp. For example:
+  #
+  # participant_id  time      type    gap_type  gap_id  row_id
+  # 12345           10:00:00  STILL   NA        NA      1
+  # 12345           10:00:00  ACTIVE  NA        NA      1
+  # 12345           10:00:00  GAP     from      1       2
+  #
+  # Nesting then results in the following:
+  # participant_id  time    gap_type  gap_id  row_id  data
+  # 12345           10:00:00   NA        NA      1     <tibble [2 × 1]>
+  # 12345           10:00:00   from      1       2     <tibble [1 × 1]>
+  #
+  # Creating the from_lag column as below, it would mean that row 2 would get the data  from row
+  # 1, which is intended behaviour. If all 3 rows would be nested in the same tibble, we would get
+  # the measurement before that in from_lag, even though there were more recent measurements.
+  # Besides, any other nesting would inevitably include gap_type and gap_id in the nested tibble,
+  # breaking the code.
+  data <- nest(data, data = !c({{ by }}, "time", "gap_id", "gap_type", "row_id"))
+
+  # Now, match the data (without the gaps) to each corresponding row_id. Thus, in some cases data
+  # and data2 will be identical. Only for the end points of gaps, set data to data2.
+  data <- dplyr::nest_join(data, lead_data, by = c(rlang::as_name(rlang::enquo(by)), "row_id"),
+                           name = "data2") %>%
     mutate(data = ifelse(!is.na(.data$gap_type) & .data$gap_type == "to",
-      .data$data2,
-      .data$data
-    )) %>%
-    # Lastly, unnest the data to get the original (and modified for "to") nested data, and ungroup
-    # and cleanup
-    # Make sure not to remove empty data tibbles as these are true NA's, i.e. either gaps where
-    # fill was not specified or gaps where there was no prio data present
+                         .data$data2,
+                         .data$data
+    ))
+
+  # Lastly, unnest the data to get the original (and modified for "to") nested data, and ungroup
+  # and cleanup
+  # Make sure not to remove empty data tibbles as these are true NA's, i.e. either gaps where
+  # fill was not specified or gaps where there was no prio data present
+  data <- data %>%
     unnest("data", keep_empty = TRUE) %>%
     ungroup() %>%
     select(-c("gap_id", "gap_type", "data2", "row_id"))
+
+  # Finally, filter out duplicates that may occur when the gap ends exactly at the same time as
+  # when another measurement begins
+  data <- distinct(data)
+  data
 }
