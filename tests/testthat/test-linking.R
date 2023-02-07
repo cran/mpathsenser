@@ -414,6 +414,44 @@ test_that("link", {
   )
 
   expect_equal(true, res)
+
+  # Check what should be done when any of the times is missing
+  # Preferably, we just want to create a 0-row tibble with `proto`, as still adding before or after
+  # is kind of strange. Additionally, the column names should be consistent with the rest of the
+  # output.
+  dat1 <- dat1 |>
+    mutate(end_time = lead(time))
+
+  res <- link(
+    x = dat1,
+    y = dat2,
+    by = "participant_id",
+    time = time,
+    end_time = end_time,
+    y_time = time,
+    add_before = TRUE,
+    add_after = TRUE)
+
+  true <- tibble::tibble(
+    time = as.POSIXct(c("2021-11-14 11:00:00", "2021-11-14 12:00:00")),
+    participant_id = "12345",
+    item_one = c(40, 50),
+    end_time = as.POSIXct(c("2021-11-14 12:00:00", NA)),
+    data = list(
+      tibble::tibble(
+        time = as.POSIXct(c("2021-11-14 11:00:00", "2021-11-14 11:10:00", "2021-11-14 11:30:00",
+                            "2021-11-14 11:40:00", "2021-11-14 12:00:00")),
+        x = c(4, 5, 6, 7, 8),
+        original_time = as.POSIXct(c(NA, NA, NA, NA, "2021-11-14 12:10:00"))
+      ),
+      tibble::tibble(
+        time = as.POSIXct(double(0)),
+        x = integer(0),
+        original_time = as.POSIXct(double(0)))
+    )
+  )
+  expect_equal(res, true)
+
 })
 
 ## link_db ===============
@@ -422,7 +460,7 @@ test_that("link_db", {
   db <- open_db(path, "test.db")
   dat1 <- data.frame(
     time = as.POSIXct(c("2021-11-14 13:00:00", "2021-11-14 14:00:00", "2021-11-14 15:00:00"),
-      tz = "UTC"
+                      tz = "UTC"
     ),
     participant_id = "12345",
     item_one = c(40, 50, 60)
@@ -444,8 +482,9 @@ test_that("link_db", {
     ),
     participant_id = "12345",
     time = as.POSIXct(c("2021-11-14 13:59:59", "2021-11-14 14:00:00", "2021-11-14 14:00:01"),
-      tz = "UTC"
+                      tz = "UTC"
     ),
+    timezone = c(NA, "CET", "CET"),
     confidence = c(NA, 100L, 99L),
     type = c(NA, "WALKING", "STILL"),
     data = list(
@@ -455,6 +494,7 @@ test_that("link_db", {
           "2d430c2a-5b16-1dce-0e2f-c049c44e3729"
         ),
         time = as.POSIXct(c("2021-11-14 14:00:00", "2021-11-14 14:01:00"), tz = "UTC"),
+        timezone = c("CET", NA),
         connectivity_status = c("wifi", NA)
       ),
       tibble::tibble(
@@ -463,11 +503,13 @@ test_that("link_db", {
           "2d430c2a-5b16-1dce-0e2f-c049c44e3729"
         ),
         time = as.POSIXct(c("2021-11-14 14:00:00", "2021-11-14 14:01:00"), tz = "UTC"),
+        timezone = c("CET", NA),
         connectivity_status = c("wifi", NA)
       ),
       tibble::tibble(
         measurement_id = "2d430c2a-5b16-1dce-0e2f-c049c44e3729",
         time = as.POSIXct("2021-11-14 14:01:00", tz = "UTC"),
+        timezone = NA_character_,
         connectivity_status = NA_character_
       )
     )
@@ -483,6 +525,7 @@ test_that("link_db", {
     ),
     participant_id = "12345",
     time = as.POSIXct(c("2021-11-14 14:00:00", "2021-11-14 14:01:00"), tz = "UTC"),
+    timezone = c("CET", NA),
     connectivity_status = c("wifi", NA),
     data = list(
       tibble::tibble(
@@ -491,12 +534,14 @@ test_that("link_db", {
           "5ba54e77-4bcf-c8d1-17ff-71b9ed908897"
         ),
         time = as.POSIXct(c("2021-11-14 14:00:00", "2021-11-14 14:00:01"), tz = "UTC"),
+        timezone = c("CET", "CET"),
         confidence = c(100L, 99L),
         type = c("WALKING", "STILL"),
       ),
       tibble::tibble(
         measurement_id = character(0),
         time = structure(numeric(0), tzone = "UTC", class = c("POSIXct", "POSIXt")),
+        timezone = character(0),
         confidence = integer(0),
         type = character(0)
       )
@@ -512,6 +557,7 @@ test_that("link_db", {
       tibble::tibble(
         measurement_id = character(0),
         time = structure(numeric(0), tzone = "UTC", class = c("POSIXct", "POSIXt")),
+        timezone = character(0),
         confidence = integer(0L),
         type = character(0)
       ),
@@ -521,12 +567,14 @@ test_that("link_db", {
           "5ba54e77-4bcf-c8d1-17ff-71b9ed908897"
         ),
         time = as.POSIXct(c("2021-11-14 14:00:00", "2021-11-14 14:00:01"), tz = "UTC"),
+        timezone = c("CET", "CET"),
         confidence = c(100L, 99L),
         type = c("WALKING", "STILL")
       ),
       tibble::tibble(
         measurement_id = character(0),
         time = structure(numeric(0), tzone = "UTC", class = c("POSIXct", "POSIXt")),
+        timezone = character(0),
         confidence = integer(0),
         type = character(0)
       )
@@ -563,14 +611,15 @@ test_that("link_db", {
 
   sens_value <- seq.int(0, 10, length.out = 50001)
   time_value <- seq.POSIXt(as.POSIXct("2021-11-14 14:00:00.000", format = "%F %H:%M:%OS"),
-    by = "sec",
-    length.out = 50001
+                           by = "sec",
+                           length.out = 50001
   )
   acc <- data.frame(
     measurement_id = paste0("id_", 1:50001),
     participant_id = "12345",
     date = "2021-11-14",
     time = strftime(time_value, format = "%H:%M:%OS3"),
+    timezone = "CET",
     x = sens_value,
     y = sens_value,
     z = sens_value
@@ -1169,7 +1218,7 @@ test_that("bin_data", {
   duration <- purrr::map_dbl(
     .x = res$bin_data,
     .f = ~ sum(as.double(.x$lead) - as.double(.x$datetime),
-      na.rm = TRUE
+               na.rm = TRUE
     ) / 60
   )
 
@@ -1209,4 +1258,25 @@ test_that("bin_data", {
       ),
     NA
   )
+
+  # Test bug #8: bin_data() incorrectly rounded off days after DST change
+  data <- tibble::tibble(
+    participant_id = 1,
+    datetime = as.POSIXct(c("2022-10-30 15:00:00", "2022-10-30 15:55:00",
+                            "2022-10-31 17:05:00", "2022-10-31 17:10:00"),
+                          tz = "Europe/Brussels"),
+    confidence = 100,
+    type = "WALKING"
+  )
+
+  res <- data %>%
+    mutate(datetime = as.POSIXct(datetime)) %>%
+    mutate(lead = lead(datetime)) %>%
+    bin_data(
+      start_time = datetime,
+      end_time = lead,
+      by = "day"
+    )
+
+  expect_equal(lubridate::hour(res$bin), c(0, 0))
 })

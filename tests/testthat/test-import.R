@@ -4,15 +4,6 @@ test_that("import", {
   # Path to test files
   path <- system.file("testdata", package = "mpathsenser")
 
-  # Arguments
-  expect_error(
-    import(dbname = "foo"),
-    paste(
-      "The `dbname` argument of `import\\(\\)` was deprecated",
-      "in mpathsenser 1.1.1 and is now defunct."
-    )
-  )
-
   # Create db
   filename <- tempfile("test", fileext = ".db")
   db <- create_db(NULL, filename)
@@ -52,20 +43,10 @@ test_that("import", {
   warnings_log <- capture_warnings(import(
     path = path,
     db = db2,
-    overwrite_db = TRUE,
-    parallel = TRUE,
     recursive = TRUE # Includes broken files
   ))
   expect_match(warnings_log, "Invalid JSON format in file broken\\/broken\\d\\.json", all = FALSE)
   expect_match(warnings_log, "Some files could not be written to the database.", all = FALSE)
-  expect_match(warnings_log, paste(
-    "The `overwrite_db` argument of `import\\(\\)`",
-    "is deprecated as of mpathsenser 1.1.1."
-  ), all = FALSE)
-  expect_match(warnings_log, paste(
-    "The `parallel` argument of `import\\(\\)`",
-    "is deprecated as of mpathsenser 1.1.1."
-  ), all = FALSE)
   dbDisconnect(db2)
   file.remove(filename)
 })
@@ -146,6 +127,7 @@ test_that(".import_clean", {
         trigger_id = "1",
         user_id = "12345",
         start_time = "2021-11-14T14:01:00.000000Z",
+        time_zone_name = "CET",
         data_format = list(
           namespace = "dk.cachet.carp",
           name = "accelerometer"
@@ -160,6 +142,7 @@ test_that(".import_clean", {
         trigger_id = "1",
         user_id = "12345",
         start_time = "2021-11-14T14:01:00.000000Z",
+        time_zone_name = "CET",
         data_format = list(
           namespace = "dk.cachet.carp",
           name = "accelerometer"
@@ -245,13 +228,27 @@ test_that(".import_extract_sensor_data", {
               timestamp = "2021-02-25T15:15:58.557282Z",
               x = 1.123456,
               y = 1.123456,
-              z = 1.123456
+              z = 1.123456,
+              x_mean = NA,
+              y_mean = NA,
+              z_mean = NA,
+              x_mean_sq = NA,
+              y_mean_sq = NA,
+              z_mean_sq = NA,
+              n = NA
             ),
             list(
               timestamp = "2021-02-25T15:15:58.557282Z",
               x = 1.123456,
               y = 1.123456,
-              z = 1.123456
+              z = 1.123456,
+              x_mean = NA,
+              y_mean = NA,
+              z_mean = NA,
+              x_mean_sq = NA,
+              y_mean_sq = NA,
+              z_mean_sq = NA,
+              n = NA
             )
           )
         )
@@ -265,13 +262,27 @@ test_that(".import_extract_sensor_data", {
               timestamp = "2021-02-25T15:15:58.557282Z",
               x = 1.123456,
               y = 1.123456,
-              z = 1.123456
+              z = 1.123456,
+              x_mean = NA,
+              y_mean = NA,
+              z_mean = NA,
+              x_mean_sq = NA,
+              y_mean_sq = NA,
+              z_mean_sq = NA,
+              n = 10
             ),
             list(
               timestamp = "2021-02-25T15:15:58.557282Z",
               x = 1.123456,
               y = 1.123456,
-              z = 1.123456
+              z = 1.123456,
+              x_mean = NA,
+              y_mean = NA,
+              z_mean = NA,
+              x_mean_sq = NA,
+              y_mean_sq = NA,
+              z_mean_sq = NA,
+              n = NA
             )
           )
         )
@@ -280,6 +291,7 @@ test_that(".import_extract_sensor_data", {
     study_id = "test-study",
     participant_id = "12345",
     start_time = "2021-02-25T15:15:58.557282Z",
+    timezone = "CET",
     data_format = "carp",
     sensor = "accelerometer"
   )
@@ -312,9 +324,17 @@ test_that(".import_extract_sensor_data", {
         participant_id = "12345",
         date = "2021-02-25",
         time = "15:15:58.557",
+        timezone = "CET",
         x = 1.123456,
         y = 1.123456,
-        z = 1.123456
+        z = 1.123456,
+        x_mean = NA,
+        y_mean = NA,
+        z_mean = NA,
+        x_mean_sq = NA,
+        y_mean_sq = NA,
+        z_mean_sq = NA,
+        n = NA
       ),
       Keyboard = NULL
     )
@@ -381,9 +401,17 @@ test_that(".import_write_to_db", {
       participant_id = "12345",
       date = "2021-02-25",
       time = "15:15:58.557",
+      timezone = "CET",
       x = 1.123456,
       y = 1.123456,
-      z = 1.123456
+      z = 1.123456,
+      x_mean = 1.123456,
+      y_mean = 1.123456,
+      z_mean = 1.123456,
+      x_mean_sq = 1.123456,
+      y_mean_sq = 1.123456,
+      z_mean_sq = 1.123456,
+      n = 10
     )
   )
   meta_data <- data.frame(

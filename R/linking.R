@@ -47,8 +47,9 @@ link_impl <- function(x,
 
   # Match sensing data with ESM using a left join
   data <- data %>%
-    dplyr::left_join(y, by = by) %>%
-    mutate(across(dplyr::all_of(y_time), as.integer, .names = ".y_time"))
+    dplyr::left_join(y, by = by, multiple = "all") %>%
+    mutate(across(dplyr::all_of(y_time), as.integer, .names = ".y_time")) %>%
+    tidyr::drop_na(".start_time", ".end_time")
 
   # The main data, i.e. data exactly within the interval
   data_main <- data %>%
@@ -62,7 +63,7 @@ link_impl <- function(x,
   # Bug: if this happens after merging data_before and data_after, they would be lost in the case
   # no data was retained in data_main as all the row_ids are deleted as well
   data_main <- x %>%
-    dplyr::left_join(data_main, by = ".row_id")
+    dplyr::left_join(data_main, by = ".row_id", multiple = "all")
 
   # Add the last measurement before start_time
   tz <- attr(pull(y, {{ y_time }}), "tz")
@@ -86,7 +87,7 @@ link_impl <- function(x,
 
     # Add to the main result
     data_main <- data_main %>%
-      dplyr::left_join(data_before, by = ".row_id") %>%
+      dplyr::left_join(data_before, by = ".row_id", multiple = "all") %>%
       mutate({{ name }} := purrr::map2(data_before, !!rlang::ensym(name), bind_rows)) %>%
       select(-"data_before")
   }
@@ -99,7 +100,7 @@ link_impl <- function(x,
       distinct(.data$.row_id)
 
     data_after <- data %>%
-      dplyr::anti_join(equal_to_start, by = ".row_id") %>%
+      dplyr::anti_join(equal_to_end, by = ".row_id") %>%
       filter(.data$.y_time > .data$.end_time) %>%
       group_by(.data$.row_id) %>%
       dplyr::slice_min(order_by =  .data$.y_time, n = 1, with_ties = TRUE) %>%
@@ -112,7 +113,7 @@ link_impl <- function(x,
 
     # Add to the main result
     data_main <- data_main %>%
-      dplyr::left_join(data_after, by = ".row_id") %>%
+      dplyr::left_join(data_after, by = ".row_id", multiple = "all") %>%
       mutate({{ name }} := purrr::map2(!!rlang::ensym(name), data_after, bind_rows)) %>%
       select(-"data_after")
   }
@@ -129,7 +130,7 @@ link_impl <- function(x,
     # proto not to be applied (since it's not null)
     if (nrow(data_main) > 0) {
       # Add column original_time in cases where it's missing
-      for (i in 1:nrow(data_main)) {
+      for (i in seq_len(nrow(data_main))) {
         if (!any("original_time" == colnames(pull(data_main, dplyr::all_of(name))[[i]]))) {
           data_main$data[[i]]$original_time <- as.POSIXct(NA, tz = tz)
         }
@@ -138,9 +139,12 @@ link_impl <- function(x,
   }
 
   res <- data_main %>%
-    mutate({{ name }} := ifelse(test = lapply(!!rlang::ensym(name), is.null),
+    mutate({{ name }} := ifelse(test = lapply(X = !!rlang::ensym(name),
+                                              FUN = \(x) {
+                                                is.null(x) || identical(x, NA) || nrow(x) == 0
+                                              }),
                                 yes = list(proto),
-                                no = !!rlang::ensym(name)))  %>%
+                                no = !!rlang::ensym(name))) %>%
     select(-".row_id")
 
   res
@@ -397,7 +401,7 @@ link <- function(x,
   }
 
   # Do not perform matching when x and y are identical
-  if (identical(x, y) || isTRUE(dplyr::all_equal(x, y))) {
+  if (identical(x, y) || isTRUE(all.equal(x, y))) {
     abort("`x` and `y` are identical.")
   }
 
@@ -422,11 +426,8 @@ link <- function(x,
   }
   check_arg(pull(y, y_time), "POSIXt", arg = "y_time")
 
-  # Do not perform matching when x and y are identical
-  if (identical(x, y) || isTRUE(dplyr::all_equal(x, y))) {
-    abort("`x` and `y` are identical.")
-  }
-
+  # Split up the data for computation efficiency, either based on a numeric value (fixed group size)
+  # or a variable
   if (!is.null(split)) {
     if (is.numeric(split)) {
       x <- split(x, rep(1:split, each = ceiling(nrow(x) / split), length.out = nrow(x)))
@@ -461,7 +462,7 @@ link <- function(x,
 
 #' Link two sensors OR one sensor and an external data frame using an mpathsenser database
 #'
-#' @description `r lifecycle::badge("superseded")`
+#' @description `r lifecycle::badge("deprecated")`
 #'
 #'   This function is specific to mpathsenser databases. It is a wrapper around [link()] but
 #'   extracts data in the database for you. It is now soft deprecated as I feel this function's use
@@ -502,7 +503,7 @@ link_db <- function(db,
                     reverse = FALSE,
                     ignore_large = FALSE) {
   # Soft deprecate warning
-  lifecycle::deprecate_soft("1.1.2", "link_db()", "link()")
+  lifecycle::deprecate_warn("1.1.2", "link_db()", "link()")
 
   check_db(db)
   check_arg(sensor_one, type = "character", n = 1)
@@ -660,7 +661,7 @@ link_gaps <- function(data,
     mutate(end_interval = .data$time_int + offset_after)
 
   data_gaps <- data_gaps %>%
-    dplyr::left_join(gaps, by = by) %>%
+    dplyr::left_join(gaps, by = by, multiple = "all") %>%
     mutate(across(c("from", "to"), as.integer)) %>%
     filter(.data$from < .data$end_interval & .data$to > .data$start_interval)
 
@@ -715,7 +716,7 @@ link_gaps <- function(data,
   # Merge with ESM data
   data <- data %>%
     tibble::as_tibble() %>%
-    dplyr::left_join(data_gaps, by = c(by, "time")) %>%
+    dplyr::left_join(data_gaps, by = c(by, "time"), multiple = "all") %>%
     mutate(gap = ifelse(is.na(.data$gap), 0, .data$gap))
 
   if (raw_data) {
@@ -739,8 +740,13 @@ link_intervals <- function(x, x_start, x_end,
   tz <- attr(pull(y, {{ y_start }}), "tz")
 
   # Calculate which values in y are within x's bounds
-  res <- x %>%
-    dplyr::left_join(y, by = by) %>%
+  if (length(by) == 0 && utils::packageVersion("dplyr") >= "1.1.0") {
+    res <- dplyr::cross_join(x, y)
+  } else {
+    res <- dplyr::left_join(x, y, by = by, multiple = "all")
+  }
+
+  res <- res %>%
     mutate(across(c({{ y_start }}, {{ y_end }}), as.integer)) %>%
     filter(
       ((is.na({{ y_end }} & {{ y_start }} >= {{ x_start }} & {{ y_start }} < {{ x_end }})) &
@@ -758,14 +764,14 @@ link_intervals <- function(x, x_start, x_end,
       {{ x_end }},
       {{ y_end }}
     )) %>%
-    mutate(across(c({{ y_start }}, {{ y_end }}), lubridate::as_datetime, tz = tz))
+    mutate(across(c({{ y_start }}, {{ y_end }}), \(.x) lubridate::as_datetime(.x, tz = tz)))
 
   out <- x %>%
     dplyr::nest_join(res,
                      by = c(
                        by,
-                       colnames(select(ungroup(x), {{ x_start}})),
-                       colnames(select(ungroup(x), {{ x_end }}))
+                       colnames(mutate(ungroup(x), {{ x_start }}, .keep = "used")),
+                       colnames(mutate(ungroup(x), {{ x_end }}, .keep = "used"))
                      ),
                      name = name)
   out
@@ -908,17 +914,44 @@ bin_data <- function(data,
 
   if (fixed) {
     out <- out %>%
-      mutate(bin_start = lubridate::floor_date(.data$bin_start, by))
+      mutate(bin_start = trunc(.data$bin_start, by))
+      # mutate(bin_start = lubridate::floor_date(.data$bin_start, by))
   }
 
   out <- out %>%
     distinct() %>%
-    drop_na("bin_start") %>%
-    mutate(bin_start = as.integer(.data$bin_start)) %>%
-    summarise(bin_start = seq.int(min(.data$bin_start, na.rm = TRUE),
-      max(.data$bin_start, na.rm = TRUE) + by_duration,
-      by = by_duration
-    ))
+    drop_na("bin_start")
+
+  if (utils::packageVersion("dplyr") >= "1.1.0") {# nocov start
+    groups <- dplyr::group_vars(out)
+    out <- out %>%
+      dplyr::reframe(bin_start = seq.POSIXt(
+        from = min(.data$bin_start, na.rm = TRUE),
+        to = max(.data$bin_start, na.rm = TRUE) + by_duration,
+        by = by_duration
+      ))
+
+    # Regroup after reframe
+    if (length(groups) > 0) {
+      out <- group_by(out, dplyr::pick(dplyr::all_of(groups)))
+    }
+  } else {
+    out <- out %>%
+      summarise(bin_start = seq.POSIXt(
+        from = min(.data$bin_start, na.rm = TRUE),
+        to = max(.data$bin_start, na.rm = TRUE) + by_duration,
+        by = by_duration
+      ))
+  } #nocov end
+
+  if (by == "day") {
+    out <- out %>%
+      mutate(bin_start = round.POSIXt(.data$bin_start, units = by))
+  }
+
+  out <- out %>%
+    mutate(bin_start = as.integer(as.POSIXct(.data$bin_start)))
+
 
   out <- out %>%
     mutate(bin_end = lead(.data$bin_start)) %>%

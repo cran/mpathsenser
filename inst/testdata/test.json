@@ -10,12 +10,8 @@
 			}
 		},
 		"body": {
-			"id": "15d06c62-3b69-5a1d-21b1-bf82ddc573bf",
-			"data": [
-				{
-					"timestamp": "2021-11-14T13:59:59.000000Z"
-				}
-			]
+			"id": "15d06c62-3b69-5a1d-21b1-bf82ddc573bg",
+			"timestamp": "2021-11-14T13:59:59.000000Z"
 		}
 	},
 	{
@@ -23,6 +19,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "accelerometer"
@@ -31,38 +28,32 @@
 		"body": {
 			"id": "268f6135-70ac-f96a-f800-0d8f6bb6ffa6",
 			"timestamp": "2021-11-14T14:00:00.000000Z",
-			"data": [
-				{
-					"timestamp": "2021-11-14T14:00:00.000000Z",
-					"x": -0.45947299565606,
-					"y": 0.66402153964424,
-					"z": 9.34531187528098
-				},
-				{
-					"timestamp": "2021-11-14T14:00:00.200000Z",
-					"x": -0.31261359042355,
-					"y": 0.37969748447006,
-					"z": 9.19530456721872
-				},
-				{
-					"timestamp": "2021-11-14T14:00:00.400000Z",
-					"x": -0.92950401127219,
-					"y": 0.40856299984702,
-					"z": 9.55071386678994
-				},
-				{
-					"timestamp": "2021-11-14T14:00:00.600000Z",
-					"x": -0.57727191720589,
-					"y": 0.91639749921748,
-					"z": 9.861390738568487
-				},
-				{
-					"timestamp": "2021-11-14T14:00:00.800000Z",
-					"x": -0.29951507561905,
-					"y": 0.362559743517898,
-					"z": 9.38065402300287
-				}
-			]
+			"x": -0.45947299565606,
+			"y": 0.66402153964424,
+			"z": 9.34531187528098
+		}
+	},
+	{
+		"header": {
+			"study_id": "test-study",
+			"user_id": "12345",
+			"start_time": "2021-11-14T14:00:01.000000Z",
+			"time_zone_name": "CET",
+			"data_format": {
+				"namespace": "carp",
+				"name": "accelerometer"
+			}
+		},
+		"body": {
+			"id": "9da62087-feb7-cd4d-2964-f33c96587863",
+			"timestamp": "2021-11-14T14:00:01.000000Z",
+			"xm": -0.002208128808,
+			"ym": -0.0004500896919,
+			"zm": -0.023477349265,
+			"xms": 0.00002054091549,
+			"yms": 0.00001809346463,
+			"zms": 0.000582901524,
+			"n": 298.0
 		}
 	},
 	{
@@ -85,6 +76,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "activity"
@@ -102,6 +94,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:01.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "activity"
@@ -134,6 +127,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "air_quality"
@@ -170,6 +164,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "apps"
@@ -218,6 +213,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "app_usage"
@@ -244,6 +240,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "battery"
@@ -263,6 +260,7 @@
 			"trigger_id": "1",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:01:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "dk.cachet.carp",
 				"name": "battery"
@@ -297,6 +295,7 @@
 			"trigger_id": "1",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "dk.cachet.carp",
 				"name": "bluetooth"
@@ -346,6 +345,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "calendar"
@@ -403,6 +403,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "connectivity"
@@ -435,6 +436,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-13T13:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "device"
@@ -459,6 +461,7 @@
 			"trigger_id": "1",
 			"user_id": "12345",
 			"start_time": "2021-11-14T13:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "dk.cachet.carp",
 				"name": "device"
@@ -491,11 +494,12 @@
 			"id": "138b9204-a313-96f3-89de-42bc2ac9d1e9"
 		}
 	},
-		{
+	{
 		"header": {
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "error"
@@ -528,46 +532,18 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "gyroscope"
 			}
 		},
 		"body": {
-			"id": "ce0cc1bf-f071-91b5-19c8-4b3b789e64a2",
+			"id": "ce0cc1bf-f071-91b5-19c8-4b3b789e64a3",
 			"timestamp": "2021-11-14T14:00:00.000000Z",
-			"data": [
-				{
-					"timestamp": "2021-11-14T14:00:00.000000Z",
-					"x": -0.0003741947002708912,
-					"y": -0.003209952265024185,
-					"z": 0.021946871653199197
-				},
-				{
-					"timestamp": "2021-11-14T14:00:00.200000Z",
-					"x": -0.000054615666158497336,
-					"y": -0.0006000570137985051,
-					"z": 0.00010896776802837849
-				},
-				{
-					"timestamp": "2021-11-14T14:00:00.400000Z",
-					"x": 0.0001584370620548725,
-					"y": -0.0001739516155794263,
-					"z": 0.00010896776802837849
-				},
-				{
-					"timestamp": "2021-11-14T14:00:00.600000Z",
-					"x": 0.0001584370620548725,
-					"y": -0.00038700434379279613,
-					"z": 0.00010896776802837849
-				},
-				{
-					"timestamp": "2021-11-14T14:00:00.800000Z",
-					"x": 0.0001584370620548725,
-					"y": -0.00038700434379279613,
-					"z": 0.00010896776802837849
-				}
-			]
+			"x": -0.0003741947002708912,
+			"y": -0.003209952265024185,
+			"z": 0.021946871653199197
 		}
 	},
 	{
@@ -583,12 +559,31 @@
 			}
 		},
 		"carp_body": {
-			"id": "06bce1d4-b4a9-d1f1-2f06-cc76d872a61d",
-			"data": [
-				{
-					"timestamp": "2021-11-14T14:00:01.000000Z"
-				}
-			]
+			"id": "06bce1d4-b4a9-d1f1-2f06-cc76d872a61g",
+			"timestamp": "2021-11-14T14:00:01.000000Z"
+		}
+	},
+	{
+		"header": {
+			"study_id": "test-study",
+			"user_id": "12345",
+			"start_time": "2021-11-14T14:00:02.000000Z",
+			"time_zone_name": "CET",
+			"data_format": {
+				"namespace": "carp",
+				"name": "gyroscope"
+			}
+		},
+		"body": {
+			"id": "6d8aa5b8-cd1b-c482-f678-5267c85b393b",
+			"timestamp": "2021-11-14T14:00:02.000000Z",
+			"xm": -1.0022081288080914,
+			"ym": -2.0004500896919947,
+			"zm": -3.0234773492653099,
+			"xms": 4.000020540915495,
+			"yms": 5.000018093464635,
+			"zms": 6.000582901524492,
+			"n": 299.0
 		}
 	},
 	{
@@ -596,6 +591,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "light"
@@ -631,6 +627,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "location"
@@ -672,6 +669,7 @@
 			"trigger_id": "1",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "dk.cachet.carp",
 				"name": "memory"
@@ -704,6 +702,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "mobility"
@@ -741,6 +740,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "noise"
@@ -776,6 +776,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "pedometer"
@@ -794,6 +795,7 @@
 			"trigger_id": "1",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:01.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "dk.cachet.carp",
 				"name": "pedometer"
@@ -825,6 +827,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "phone_log"
@@ -859,6 +862,7 @@
 			"trigger_id": "1",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:01.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "dk.cachet.carp",
 				"name": "screen"
@@ -874,6 +878,7 @@
 			"study_id": "test-study",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:00:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "carp",
 				"name": "weather"
@@ -943,6 +948,7 @@
 			"trigger_id": "1",
 			"user_id": "12345",
 			"start_time": "2021-11-14T14:01:00.000000Z",
+			"time_zone_name": "CET",
 			"data_format": {
 				"namespace": "dk.cachet.carp",
 				"name": "wifi"
