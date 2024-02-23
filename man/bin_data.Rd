@@ -30,14 +30,16 @@ A tibble containing the group columns (if any), date, hour (if \code{by = "hour"
 the duration in seconds.
 }
 \description{
-\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#experimental}{\figure{lifecycle-experimental.svg}{options: alt='[Experimental]'}}}{\strong{[Experimental]}}
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#stable}{\figure{lifecycle-stable.svg}{options: alt='[Stable]'}}}{\strong{[Stable]}}
 
 In time series with variable measurements, an often recurring task is calculating the total time
 spent (i.e. the duration) in fixed bins, for example per hour or day. However, this may be
 difficult when two subsequent measurements are in different bins or span over multiple bins.
 }
 \examples{
-data <- tibble::tibble(
+library(dplyr)
+
+data <- tibble(
   participant_id = 1,
   datetime = c(
     "2022-06-21 15:00:00", "2022-06-21 15:55:00",
@@ -48,9 +50,9 @@ data <- tibble::tibble(
 )
 
 # get bins per hour, even if the interval is longer than one hour
-data \%>\%
-  dplyr::mutate(datetime = as.POSIXct(datetime)) \%>\%
-  dplyr::mutate(lead = dplyr::lead(datetime)) \%>\%
+data |>
+  mutate(datetime = as.POSIXct(datetime)) |>
+  mutate(lead = lead(datetime)) |>
   bin_data(
     start_time = datetime,
     end_time = lead,
@@ -61,9 +63,9 @@ data \%>\%
 # bins, but only if fixed = FALSE. Not that these bins are not rounded to,
 # as in this example 30 minutes, but rather depends on the earliest time
 # in the group.
-data \%>\%
-  dplyr::mutate(datetime = as.POSIXct(datetime)) \%>\%
-  dplyr::mutate(lead = dplyr::lead(datetime)) \%>\%
+data |>
+  mutate(datetime = as.POSIXct(datetime)) |>
+  mutate(lead = lead(datetime)) |>
   bin_data(
     start_time = datetime,
     end_time = lead,
@@ -72,7 +74,7 @@ data \%>\%
   )
 
 # More complicated data for showcasing grouping:
-data <- tibble::tibble(
+data <- tibble(
   participant_id = 1,
   datetime = c(
     "2022-06-21 15:00:00", "2022-06-21 15:55:00",
@@ -83,11 +85,11 @@ data <- tibble::tibble(
 )
 
 # binned_intervals also takes into account the prior grouping structure
-out <- data \%>\%
-  dplyr::mutate(datetime = as.POSIXct(datetime)) \%>\%
-  dplyr::group_by(participant_id) \%>\%
-  dplyr::mutate(lead = dplyr::lead(datetime)) \%>\%
-  dplyr::group_by(participant_id, type) \%>\%
+out <- data |>
+  mutate(datetime = as.POSIXct(datetime)) |>
+  group_by(participant_id) |>
+  mutate(lead = lead(datetime)) |>
+  group_by(participant_id, type) |>
   bin_data(
     start_time = datetime,
     end_time = lead,
@@ -104,11 +106,11 @@ purrr::map_dbl(
 )
 
 # Or:
-out \%>\%
-  tidyr::unnest(bin_data, keep_empty = TRUE) \%>\%
-  dplyr::mutate(duration = .data$lead - .data$datetime) \%>\%
-  dplyr::group_by(bin, .add = TRUE) \%>\%
-  dplyr::summarise(duration = sum(.data$duration, na.rm = TRUE), .groups = "drop")
+out |>
+  tidyr::unnest(bin_data, keep_empty = TRUE) |>
+  mutate(duration = .data$lead - .data$datetime) |>
+  group_by(bin, .add = TRUE) |>
+  summarise(duration = sum(.data$duration, na.rm = TRUE), .groups = "drop")
 }
 \seealso{
 \code{\link[=link_gaps]{link_gaps()}} for linking gaps to data.

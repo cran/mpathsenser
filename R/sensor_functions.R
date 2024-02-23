@@ -145,13 +145,24 @@ last_date <- function(db, sensor, participant_id = NULL) {
 #'
 #' @returns A tibble containing app names.
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' db <- open_db()
+#'
+#' # Get installed apps for all participants
+#' installed_apps(db)
+#'
+#' # Get installed apps for a single participant
+#' installed_apps(db, "12345")
+#' }
 installed_apps <- function(db, participant_id = NULL) {
   check_db(db)
 
-  get_data(db, "InstalledApps", participant_id) %>%
-    filter(!is.na(.data$app)) %>%
-    distinct(.data$app) %>%
-    arrange(.data$app) %>%
+  get_data(db, "InstalledApps", participant_id) |>
+    filter(!is.na(.data$app)) |>
+    distinct(.data$app) |>
+    arrange(.data$app) |>
     collect()
 }
 
@@ -214,7 +225,10 @@ app_category <- function(name, num = 1, rate_limit = 5, exact = TRUE) {
   }
 
   for (i in seq_along(name)) {
-    res[i, 2:3] <- app_category_impl(name[i], num, exact)
+    res[i, 2:3] <- tryCatch(
+      app_category_impl(name[i], num, exact),
+      error = \(e) list(package = NA, genre = NA)
+    )
 
     if (requireNamespace("progressr", quietly = TRUE)) {
       p()
@@ -229,7 +243,7 @@ app_category <- function(name, num = 1, rate_limit = 5, exact = TRUE) {
 }
 
 app_category_impl <- function(name, num, exact) {
-  # Replace illegal characters
+  # Replace illegal characters in app name
   name <- iconv(name, from = "UTF-8", to = "ASCII//TRANSLIT")
   name <- gsub("[^[:alnum:] .@]", " ", name, perl = TRUE)
   name <- gsub(" ", "%20", name)
@@ -240,18 +254,21 @@ app_category_impl <- function(name, num, exact) {
     "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:70.0) Gecko/20100101 Firefox/70.0"
   )
 
-  session <- httr::GET(query, ua)
+  session <- tryCatch(
+    httr::GET(query, ua),
+    error = \(e) e
+  )
 
-  if (!httr::http_error(session)) {
+  if (!inherits(session, "error") && !httr::http_error(session)) {
     session <- httr::content(session)
   } else {
     return(list(package = NA, genre = NA)) # nocov
   }
 
   # Get the link
-  links <- session %>%
-    rvest::html_elements("a") %>%
-    rvest::html_attr("href") %>%
+  links <- session |>
+    rvest::html_elements("a") |>
+    rvest::html_attr("href") |>
     purrr::keep(~ grepl("^\\/store\\/apps\\/details\\?id=.*$", .x))
 
   if (length(links) == 0) {
@@ -284,19 +301,22 @@ app_category_impl <- function(name, num, exact) {
     link <- paste0("https://play.google.com", link)
   }
 
-  session <- httr::GET(link, ua)
+  session <- tryCatch(
+    httr::GET(link, ua),
+    error = \(e) e
+  )
 
-  if (!httr::http_error(session)) {
+  if (!inherits(session, "error") && !httr::http_error(session)) {
     session <- httr::content(session)
   } else {
     return(list(package = NA, genre = NA)) # nocov
   }
 
   # Extract the genre and return results
-  genre <- session %>%
-    rvest::html_element(xpath = ".//script[contains(., 'applicationCategory')]") %>%
-    rvest::html_text() %>%
-    jsonlite::fromJSON() %>%
+  genre <- session |>
+    rvest::html_element(xpath = ".//script[contains(., 'applicationCategory')]") |>
+    rvest::html_text() |>
+    jsonlite::fromJSON() |>
     purrr::pluck("applicationCategory")
   list(package = gsub("^.+?(?<=\\?id=)", "", link, perl = TRUE), genre = genre)
 }
@@ -310,10 +330,22 @@ app_category_impl <- function(name, num, exact) {
 #'
 #' @returns A tibble containing device info for each participant
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' # Open the database
+#' db <- open_db("path/to/db")
+#'
+#' # Get device info for all participants
+#' device_info(db)
+#'
+#' # Get device info for a specific participant
+#' device_info(db, participant_id = 1)
+#' }
 device_info <- function(db, participant_id = NULL) {
-  get_data(db, "Device", participant_id = participant_id) %>%
-    select("participant_id", "device_id":"platform") %>%
-    distinct() %>%
+  get_data(db, "Device", participant_id = participant_id) |>
+    select(-any_of(c("measurement_id", "date", "time"))) |>
+    distinct() |>
     collect()
 }
 
@@ -331,12 +363,20 @@ device_info <- function(db, participant_id = NULL) {
 #'
 #' @returns A data frame containing a column 'app' and a column 'usage' for the hourly app usage.
 #' @keywords internal
-app_usage <- function(db,
-                      participant_id = NULL,
-                      start_date = NULL,
-                      end_date = NULL,
-                      by = c("Total", "Day", "Hour")) {
-
+app_usage <- function(
+    db,
+    participant_id = NULL,
+    start_date = NULL,
+    end_date = NULL,
+    by = c("Total", "Day", "Hour")) {
+  lifecycle::deprecate_stop(
+    when = "1.1.2",
+    what = "app_usage()",
+    details = c(
+      i = paste("`app_usage()` is defunctional for now, as it",
+                "is unclear how this function should behave."),
+      i = "It will be reimplemented in mpathsenser 2.0.0."
+    ))
 }
 
 #' Get a summary of physical activity (recognition)
@@ -356,21 +396,30 @@ app_usage <- function(db,
 #' @returns A tibble containing a column 'activity' and a column 'duration' for the hourly
 #' activity duration.
 #' @keywords internal
-activity_duration <- function(data = NULL,
-                              db = NULL,
-                              participant_id = NULL,
-                              confidence = 70,
-                              direction = "forward",
-                              start_date = NULL,
-                              end_date = NULL,
-                              by = c("Total", "Day", "Hour")) {
+activity_duration <- function(
+    data = NULL,
+    db = NULL,
+    participant_id = NULL,
+    confidence = 70,
+    direction = "forward",
+    start_date = NULL,
+    end_date = NULL,
+    by = c("Total", "Day", "Hour")) {
 
+  lifecycle::deprecate_stop(
+    when = "1.1.2",
+    what = "activity_duration()",
+    details = c(
+      i = paste("`activity_duration()` is defunctional for now, as it",
+                "is unclear how this function should behave."),
+      i = "It will be reimplemented in mpathsenser 2.0.0."
+    ))
 }
 
 #' @noRd
 compress_activity <- function(data, direction = "forward") {
-  data %>%
-    arrange("date", "time") %>%
+  data |>
+    arrange("date", "time") |>
     filter(!(lead(.data$type) == .data$type & lag(.data$type) == .data$type))
 }
 
@@ -389,11 +438,20 @@ compress_activity <- function(data, direction = "forward") {
 #' depending on the \code{by} argument. Alternatively, if no \code{by} is specified, a remote
 #' tibble is returned with the date, time, and duration since the previous measurement.
 #' @keywords internal
-screen_duration <- function(db,
-                            participant_id,
-                            start_date = NULL,
-                            end_date = NULL,
-                            by = c("Hour", "Day")) {
+screen_duration <- function(
+    db,
+    participant_id,
+    start_date = NULL,
+    end_date = NULL,
+    by = c("Hour", "Day")) {
+  lifecycle::deprecate_stop(
+    when = "1.1.2",
+    what = "screen_duration()",
+    details = c(
+      i = paste("`screen_duration()` is defunctional for now, as it",
+                "is unclear how this function should behave."),
+      i = "It will be reimplemented in mpathsenser 2.0.0."
+    ))
 
 }
 
@@ -409,18 +467,20 @@ screen_duration <- function(db,
 #' @returns In case grouping is by the total amount, returns a single numeric value. For date and
 #' hour grouping returns a tibble with columns 'date' or 'hour' and the number of screen on's 'n'.
 #' @keywords internal
-n_screen_on <- function(db,
-                        participant_id,
-                        start_date = NULL,
-                        end_date = NULL,
-                        by = c("Total", "Hour", "Day")) {
-  lifecycle::deprecate_stop(when = "1.1.2",
-                            what = "n_screen_on()",
-                            details = c(
-                              i = paste("`n_screen_on()` is defunctional for now, as it",
-                                        "is unclear how this function should behave."),
-                              i = "It will be reimplemented in mpathsenser 2.0.0."
-                            ))
+n_screen_on <- function(
+    db,
+    participant_id,
+    start_date = NULL,
+    end_date = NULL,
+    by = c("Total", "Hour", "Day")) {
+  lifecycle::deprecate_stop(
+    when = "1.1.2",
+    what = "n_screen_on()",
+    details = c(
+      i = paste("`n_screen_on()` is defunctional for now, as it",
+                "is unclear how this function should behave."),
+      i = "It will be reimplemented in mpathsenser 2.0.0."
+    ))
 }
 
 #' Get number of screen unlocks
@@ -436,18 +496,20 @@ n_screen_on <- function(db,
 #' hour grouping returns a tibble with columns 'date' or 'hour' and the number of screen unlocks
 #' 'n'.
 #' @keywords internal
-n_screen_unlocks <- function(db,
-                             participant_id,
-                             start_date = NULL,
-                             end_date = NULL,
-                             by = c("Total", "Hour", "Day")) {
-  lifecycle::deprecate_stop(when = "1.1.2",
-                            what = "n_screen_unlocks()",
-                            details = c(
-                              i = paste("`n_screen_unlocks()` is defunctional for now, as it",
-                                        "is unclear how this function should behave."),
-                              i = "It will be reimplemented in mpathsenser 2.0.0."
-                            ))
+n_screen_unlocks <- function(
+    db,
+    participant_id,
+    start_date = NULL,
+    end_date = NULL,
+    by = c("Total", "Hour", "Day")) {
+  lifecycle::deprecate_stop(
+    when = "1.1.2",
+    what = "n_screen_unlocks()",
+    details = c(
+      i = paste("`n_screen_unlocks()` is defunctional for now, as it",
+                "is unclear how this function should behave."),
+      i = "It will be reimplemented in mpathsenser 2.0.0."
+    ))
 }
 
 
@@ -463,13 +525,14 @@ n_screen_unlocks <- function(db,
 #' @returns A tibble with the 'date', 'hour', and the number of 'steps'.
 #' @keywords internal
 step_count <- function(db, participant_id = NULL, start_date = NULL, end_date = NULL) {
-  lifecycle::deprecate_stop(when = "1.1.2",
-                            what = "step_count()",
-                            details = c(
-                              i = paste("`step_count()` is defunctional for now, as it",
-                                        "is unclear how this function should behave."),
-                              i = "It will be reimplemented in mpathsenser 2.0.0."
-                            ))
+  lifecycle::deprecate_stop(
+    when = "1.1.2",
+    what = "step_count()",
+    details = c(
+      i = paste("`step_count()` is defunctional for now, as it",
+                "is unclear how this function should behave."),
+      i = "It will be reimplemented in mpathsenser 2.0.0."
+    ))
 }
 # nocov end
 
@@ -499,13 +562,15 @@ step_count <- function(db, participant_id = NULL, start_date = NULL, end_date = 
 #' )
 #' close_db(db)
 #' }
-moving_average <- function(db,
-                           sensor,
-                           cols,
-                           n,
-                           participant_id = NULL,
-                           start_date = NULL,
-                           end_date = NULL) {
+moving_average <- function(
+    db,
+    sensor,
+    cols,
+    n,
+    participant_id = NULL,
+    start_date = NULL,
+    end_date = NULL) {
+
   lifecycle::signal_stage("experimental", "moving_average()")
   check_db(db)
   check_sensors(sensor, n = 1)
@@ -611,24 +676,24 @@ moving_average <- function(db,
 #' @examples
 #' \dontrun{
 #' # Find the gaps for a participant and convert to datetime
-#' gaps <- identify_gaps(db, "12345", min_gap = 60) %>%
-#'   mutate(across(c(to, from), ymd_hms)) %>%
+#' gaps <- identify_gaps(db, "12345", min_gap = 60) |>
+#'   mutate(across(c(to, from), ymd_hms)) |>
 #'   mutate(across(c(to, from), with_tz, "Europe/Brussels"))
 #'
 #' # Get some sensor data and calculate a statistic, e.g. the time spent walking
 #' # You can also do this with larger intervals, e.g. the time spent walking per hour
-#' walking_time <- get_data(db, "Activity", "12345") %>%
-#'   collect() %>%
-#'   mutate(datetime = ymd_hms(paste(date, time))) %>%
-#'   mutate(datetime = with_tz(datetime, "Europe/Brussels")) %>%
-#'   arrange(datetime) %>%
-#'   mutate(prev_time = lag(datetime)) %>%
-#'   mutate(duration = datetime - prev_time) %>%
+#' walking_time <- get_data(db, "Activity", "12345") |>
+#'   collect() |>
+#'   mutate(datetime = ymd_hms(paste(date, time))) |>
+#'   mutate(datetime = with_tz(datetime, "Europe/Brussels")) |>
+#'   arrange(datetime) |>
+#'   mutate(prev_time = lag(datetime)) |>
+#'   mutate(duration = datetime - prev_time) |>
 #'   filter(type == "WALKING")
 #'
 #' # Find out if a gap occurs in the time intervals
-#' walking_time %>%
-#'   rowwise() %>%
+#' walking_time |>
+#'   rowwise() |>
 #'   mutate(gap = any(gaps$from >= prev_time & gaps$to <= datetime))
 #' }
 identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Accelerometer") {
@@ -638,8 +703,8 @@ identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Acc
 
   # Get the data for each sensor
   data <- purrr::map(sensor, ~ {
-    get_data(db, .x, participant_id) %>%
-      mutate(datetime = DATETIME(paste(.data$date, .data$time))) %>%
+    get_data(db, .x, participant_id) |>
+      mutate(datetime = DATETIME(paste(.data$date, .data$time))) |>
       select("participant_id", "datetime")
   })
 
@@ -647,14 +712,14 @@ identify_gaps <- function(db, participant_id = NULL, min_gap = 60, sensor = "Acc
   data <- Reduce(dplyr::union, data)
 
   # Then, calculate the gap duration
-  data %>%
-    dbplyr::window_order(.data$participant_id, .data$datetime) %>%
-    group_by(.data$participant_id) %>%
-    mutate(to = lead(.data$datetime)) %>%
-    ungroup() %>%
-    mutate(gap = UNIXEPOCH(.data$to) - UNIXEPOCH(.data$datetime)) %>%
-    filter(.data$gap >= min_gap) %>%
-    select("participant_id", from = "datetime", "to", "gap") %>%
+  data |>
+    dbplyr::window_order(.data$participant_id, .data$datetime) |>
+    group_by(.data$participant_id) |>
+    mutate(to = lead(.data$datetime)) |>
+    ungroup() |>
+    mutate(gap = UNIXEPOCH(.data$to) - UNIXEPOCH(.data$datetime)) |>
+    filter(.data$gap >= min_gap) |>
+    select("participant_id", from = "datetime", "to", "gap") |>
     collect()
 }
 
@@ -735,6 +800,7 @@ add_gaps <- function(data, gaps, by = NULL, continue = FALSE, fill = NULL) {
   check_arg(continue, "logical")
   check_arg(fill, "list", allow_null = TRUE)
 
+  # Check if `by` is present in both `data` and `gaps`
   if (!is.null(by)) {
     err <- try(
       {
@@ -758,14 +824,14 @@ add_gaps <- function(data, gaps, by = NULL, continue = FALSE, fill = NULL) {
   # If we don't want to continue the previous measurement after the gap, we can simply add the
   # gaps to the data and sort
   if (!continue) {
-    gaps <- gaps %>%
-      select({{ by }}, time = "from") %>%
+    gaps <- gaps |>
+      select({{ by }}, time = "from") |>
       mutate(!!!fill)
 
-    data <- data %>%
-      bind_rows(gaps) %>%
-      arrange(across(c({{ by }}, "time"))) %>%
-      distinct() %>%
+    data <- data |>
+      bind_rows(gaps) |>
+      arrange(across(c({{ by }}, "time"))) |>
+      distinct() |>
       tibble::as_tibble() # Ensure consistent output format
 
     return(data)
@@ -776,15 +842,15 @@ add_gaps <- function(data, gaps, by = NULL, continue = FALSE, fill = NULL) {
   # later on.
   # Only assign the values from fill to the start of the gap, as we want the end of the gap to be
   # NA when there is no prior data
-  prepared_gaps <- gaps %>%
-    select({{ by }}, "from", "to") %>%
-    mutate(gap_id = dplyr::row_number()) %>%
+  prepared_gaps <- gaps |>
+    select({{ by }}, "from", "to") |>
+    mutate(gap_id = dplyr::row_number()) |>
     tidyr::pivot_longer(
       cols = c("from", "to"),
       names_to = "gap_type",
       values_to = "time"
-    ) %>%
-    mutate(!!!fill) %>%
+    ) |>
+    mutate(!!!fill) |>
     mutate(across(names(fill), ~ ifelse(gap_type == "to", NA, .x)))
 
   # Assign groups numbers to the data based on their time stamp and by column In principle, each row
@@ -806,16 +872,16 @@ add_gaps <- function(data, gaps, by = NULL, continue = FALSE, fill = NULL) {
   # 12345           2022-05-10 10:20:00     NA    NA => 123
   #
   # See below for how to continue this sequence, but know that this is why there are row_ids.
-  data <- data %>%
-    arrange(across(c({{ by }}, "time"))) %>%
-    group_by(across(c({{ by }}, "time"))) %>%
-    mutate(row_id = dplyr::cur_group_id()) %>%
+  data <- data |>
+    arrange(across(c({{ by }}, "time"))) |>
+    group_by(across(c({{ by }}, "time"))) |>
+    mutate(row_id = dplyr::cur_group_id()) |>
     ungroup()
 
   # Remove the time stamps as they are contained in the row_id (with multiple measurements at the
   # same time having the same row_id)
   # This data frame will be used later to match data to the gaps' row_ids.
-  lead_data <- data %>%
+  lead_data <- data |>
     select(-"time")
 
   # Add the gaps to the data
@@ -829,18 +895,18 @@ add_gaps <- function(data, gaps, by = NULL, continue = FALSE, fill = NULL) {
   # previous measurement, solving the multiple-gap-problem.
   data <- tidyr::fill(data, "row_id", .direction = "down")
 
-  # Then, nest confidence and type by time to calculate the "lag - 2" for the end of gaps "to".
+  # Then, nest confidence and type by `time` to calculate the "lag - 2" for the end of gaps "to".
   # This is necessary because if two measurements at the same time were present just before the
   # gap, they should also both continue after the gap.
   #
   # Note: The code below is equivalent to
-  # group_by(participant_id, time, gap_type, gap_id) %>%
-  # nest() %>%
-  # ungroup() %>%
+  # group_by(participant_id, time, gap_type, gap_id) |>
+  # nest() |>
+  # ungroup() |>
   # or
-  # group_by(across(c({{ by }}, .data$time))) %>%
-  # nest(data = !c(.data$gap_id, .data$gap_type, .data$row_id)) %>%
-  # ungroup() %>%
+  # group_by(across(c({{ by }}, .data$time))) |>
+  # nest(data = !c(.data$gap_id, .data$gap_type, .data$row_id)) |>
+  # ungroup() |>
   #
   # This means that if there is a (or multiple) measurement of the same participant at the same
   # time and also the start or end of a gap (gap_type "from" or "to"), there will two groups: one
@@ -867,7 +933,7 @@ add_gaps <- function(data, gaps, by = NULL, continue = FALSE, fill = NULL) {
   # Now, match the data (without the gaps) to each corresponding row_id. Thus, in some cases data
   # and data2 will be identical. Only for the end points of gaps, set data to data2.
   data <- dplyr::nest_join(data, lead_data, by = c(rlang::as_name(rlang::enquo(by)), "row_id"),
-                           name = "data2") %>%
+                           name = "data2") |>
     mutate(data = ifelse(!is.na(.data$gap_type) & .data$gap_type == "to",
                          .data$data2,
                          .data$data
@@ -877,9 +943,9 @@ add_gaps <- function(data, gaps, by = NULL, continue = FALSE, fill = NULL) {
   # and cleanup
   # Make sure not to remove empty data tibbles as these are true NA's, i.e. either gaps where
   # fill was not specified or gaps where there was no prio data present
-  data <- data %>%
-    unnest("data", keep_empty = TRUE) %>%
-    ungroup() %>%
+  data <- data |>
+    unnest("data", keep_empty = TRUE) |>
+    ungroup() |>
     select(-c("gap_id", "gap_type", "data2", "row_id"))
 
   # Finally, filter out duplicates that may occur when the gap ends exactly at the same time as

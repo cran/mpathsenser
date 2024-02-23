@@ -1,7 +1,7 @@
 # Tests for database.R
 
 test_that("sensors-vec", {
-  expect_vector(sensors, character(), size = 25)
+  expect_vector(sensors, character(), size = 27)
 })
 
 test_that("create_db", {
@@ -88,7 +88,7 @@ test_that("copy_db", {
   # Create new db and copy to it
   new_db <- create_db(NULL, filename)
   copy_db(db, new_db, sensor = "Accelerometer")
-  true <- c(9L, rep(0L, 24))
+  true <- c(2L, rep(0L, 26))
   names(true) <- sensors
   expect_equal(get_nrows(new_db), true)
 
@@ -194,7 +194,7 @@ test_that("add_processed_file", {
   file.remove(filename)
 })
 
-test_that("clear_sensors_db", {
+test_that("clear_db", {
   path <- system.file("testdata", package = "mpathsenser")
 
   # Create db
@@ -202,11 +202,14 @@ test_that("clear_sensors_db", {
   db <- create_db(NULL, filename)
 
   suppressMessages(import(path, db = db, recursive = FALSE))
-  original <- get_nrows(db)
-  res <- clear_sensors_db(db)
-  expect_type(res, "list")
-  expect_length(res, length(sensors))
-  expect_equal(Reduce(`+`, res), sum(original))
+  original <- sum(get_nrows(db))
+  original <- original + nrow(get_participants(db))
+  original <- original + nrow(get_studies(db))
+  original <- original + nrow(get_processed_files(db))
+  res <- clear_db(db)
+  expect_type(res, "double")
+  expect_length(res, length(sensors) + 3)
+  expect_equal(Reduce(`+`, res), original)
   expect_equal(sum(get_nrows(db)), 0L)
 
   # Cleanup
@@ -218,9 +221,9 @@ test_that("get_processed_files", {
   db <- open_db(system.file("testdata", package = "mpathsenser"), "test.db")
   res <- get_processed_files(db)
   true <- data.frame(
-    file_name = c("old_tests.json", "test.json", "empty.json"),
-    participant_id = c("12345", "12345", "N/A"),
-    study_id = c("test-study", "test-study", "-1")
+    file_name = c("empty.json", "new_tests.json", "test.json"),
+    participant_id = c("N/A", "N/A", "12345"),
+    study_id = c("-1", "tests.json", "test-study")
   )
   expect_equal(res, true)
   dbDisconnect(db)
@@ -231,8 +234,8 @@ test_that("get_participants", {
   res <- get_participants(db)
   res_lazy <- get_participants(db, lazy = TRUE)
   true <- data.frame(
-    participant_id = c("12345", "N/A"),
-    study_id = c("test-study", "-1")
+    participant_id = c("N/A", "12345"),
+    study_id = c("-1", "test-study")
   )
   expect_equal(res, true)
   expect_s3_class(res_lazy, "tbl_SQLiteConnection")
@@ -244,8 +247,8 @@ test_that("get_study", {
   res <- get_studies(db)
   res_lazy <- get_studies(db, lazy = TRUE)
   true <- data.frame(
-    study_id = c("test-study", "-1"),
-    data_format = c("carp", NA)
+    study_id = c("-1", "tests.json", "test-study"),
+    data_format = c(NA, NA, "carp")
   )
   expect_equal(res, true)
   expect_s3_class(res_lazy, "tbl_SQLiteConnection")

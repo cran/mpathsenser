@@ -1,4 +1,4 @@
-## ---- echo = FALSE, include = FALSE, message = FALSE--------------------------
+## ----echo = FALSE, include = FALSE, message = FALSE---------------------------
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>"
@@ -13,6 +13,8 @@ library(mpathsenser)
 ## ----copy data, results="hide"------------------------------------------------
 # Get the temp folder
 tempdir <- tempdir()
+tempdir <- file.path(tempdir, "vignette")
+dir.create(tempdir)
 
 # Get a handle to the data files
 path <- system.file("extdata", "example", package = "mpathsenser")
@@ -49,7 +51,7 @@ import(
   batch_size = 12
 )
 
-## ---- fig.width=13, fig.height=8, fig.align='center', dpi=55------------------
+## ----fig.width=13, fig.height=8, fig.align='center', dpi=55-------------------
 sensors <- c(
   "Accelerometer", "Activity", "AppUsage", "Bluetooth", "Calendar",
   "Connectivity", "Device", "Gyroscope", "InstalledApps", "Light",

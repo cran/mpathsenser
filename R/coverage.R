@@ -21,6 +21,9 @@
 #' Wifi | 60 |  Once per minute.
 #'
 #' @export freq
+#'
+#' @examples
+#' freq
 freq <- c(
   Accelerometer = 720,
   AirQuality = 1,
@@ -65,11 +68,8 @@ freq <- c(
 #' hour, type of measure (i.e. sensor), and (relative) coverage.
 #' @export
 #'
-#'
 #' @examples
 #' \dontrun{
-#' fix_json()
-#' unzip()
 #' freq <- c(
 #'   Accelerometer = 720, # Once per 5 seconds. Can have multiple measurements.
 #'   AirQuality = 1,
@@ -84,6 +84,7 @@ freq <- c(
 #'   Weather = 1,
 #'   Wifi = 60 # once per minute
 #' )
+#'
 #' coverage(
 #'   db = db,
 #'   participant_id = "12345",
@@ -93,15 +94,17 @@ freq <- c(
 #'   end_date = "2021-05-01"
 #' )
 #' }
-coverage <- function(db,
-                     participant_id,
-                     sensor = NULL,
-                     frequency = mpathsenser::freq,
-                     relative = TRUE,
-                     offset = "None",
-                     start_date = NULL,
-                     end_date = NULL,
-                     plot = deprecated()) {
+coverage <- function(
+    db,
+    participant_id,
+    sensor = NULL,
+    frequency = mpathsenser::freq,
+    relative = TRUE,
+    offset = "None",
+    start_date = NULL,
+    end_date = NULL,
+    plot = deprecated()) {
+
   check_db(db)
   check_arg(participant_id, type = c("character"), n = 1)
   check_sensors(sensor, allow_null = TRUE)
@@ -180,6 +183,7 @@ coverage <- function(db,
 
   class(data) <- c("coverage", class(data))
   attr(data, "participant_id") <- participant_id
+  attr(data, "relative") <- relative
   return(data)
 }
 
@@ -191,31 +195,95 @@ coverage <- function(db,
 #' @seealso [coverage()]
 #' @returns A [ggplot2::ggplot] object.
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' freq <- c(
+#'   Accelerometer = 720, # Once per 5 seconds. Can have multiple measurements.
+#'   AirQuality = 1,
+#'   AppUsage = 2, # Once every 30 minutes
+#'   Bluetooth = 60, # Once per minute. Can have multiple measurements.
+#'   Gyroscope = 720, # Once per 5 seconds. Can have multiple measurements.
+#'   Light = 360, # Once per 10 seconds
+#'   Location = 60, # Once per 60 seconds
+#'   Memory = 60, # Once per minute
+#'   Noise = 120,
+#'   Pedometer = 1,
+#'   Weather = 1,
+#'   Wifi = 60 # once per minute
+#' )
+#'
+#' data <- coverage(
+#'   db = db,
+#'   participant_id = "12345",
+#'   sensor = c("Accelerometer", "Gyroscope"),
+#'   frequency = mpathsenser::freq,
+#'   start_date = "2021-01-01",
+#'   end_date = "2021-05-01"
+#' )
+#'
+#' plot(data)
+#' }
 plot.coverage <- function(x, ...) {
   ensure_suggested_package("ggplot2")
 
-  ggplot2::ggplot(
-    data = x,
-    mapping = ggplot2::aes(x = .data$hour, y = .data$measure, fill = .data$coverage)
-  ) +
+  is_relative <- attr(x, "relative")
+  is_relative <- if (is.null(is_relative)) TRUE else is_relative
+  participant_id <- attr(x, "participant_id")
+  if (!is_relative) {
+    x <- x |>
+      group_by(.data$measure) |>
+      mutate(max_coverage = max(.data$coverage)) |>
+      mutate(max_coverage = ifelse(.data$max_coverage == 0, 1, .data$max_coverage)) |>
+      mutate(scaled_coverage = .data$coverage /  max(.data$max_coverage)) |>
+      ungroup("measure")
+
+    plot <- ggplot2::ggplot(
+      data = x,
+      mapping = ggplot2::aes(x = .data$hour, y = .data$measure, fill = .data$scaled_coverage)
+    )
+  } else {
+    plot <- ggplot2::ggplot(
+      data = x,
+      mapping = ggplot2::aes(x = .data$hour, y = .data$measure, fill = .data$coverage)
+    )
+  }
+
+  plot <- plot +
     ggplot2::geom_tile() +
     ggplot2::geom_text(
       mapping = ggplot2::aes(label = coverage),
       colour = "white"
     ) +
     ggplot2::scale_x_continuous(breaks = 0:23) +
+    ggplot2::theme_minimal() +
+    ggplot2::labs(
+      title = paste0("Coverage for participant ", participant_id),
+      x = "Hour",
+      y = "Sensor"
+    )
+
+  if (is_relative) {
+    plot <- plot +
     ggplot2::scale_fill_gradientn(
       colours = c("#d70525", "#645a6c", "#3F7F93"),
       breaks = c(0, 0.5, 1),
       labels = c(0, 0.5, 1),
-      limits = c(0, 1)
-    ) +
-    ggplot2::theme_minimal() +
-    ggplot2::labs(
-      title = paste0("Coverage for participant ", attr(x, "participant_id")),
-      x = "Hour",
-      y = "Sensor"
+      limits = c(0, 1),
+      name = "coverage"
     )
+  } else {
+    plot <- plot +
+    ggplot2::scale_fill_gradientn(
+      colours = c("#d70525", "#645a6c", "#3F7F93"),
+      breaks = c(0, 0.5, 1),
+      labels = c("low", "medium", "high"),
+      limits = c(0, 1),
+      name = "coverage"
+    )
+  }
+
+  plot
 }
 
 coverage_impl <- function(db, participant_id, sensor, frequency, relative, start_date, end_date) {
@@ -228,14 +296,14 @@ coverage_impl <- function(db, participant_id, sensor, frequency, relative, start
     tmp_db <- open_db(NULL, db@dbname)
 
     # Extract the data for this participant and sensor
-    tmp <- dplyr::tbl(tmp_db, .x) %>%
-      filter(participant_id == p_id) %>%
+    tmp <- dplyr::tbl(tmp_db, .x) |>
+      filter(participant_id == p_id) |>
       select("measurement_id", "time", "date")
 
     # Filter by date if needed
     if (!is.null(start_date) && !is.null(end_date)) {
-      tmp <- tmp %>%
-        filter(date >= start_date) %>%
+      tmp <- tmp |>
+        filter(date >= start_date) |>
         filter(date <= end_date)
     }
 
@@ -245,23 +313,23 @@ coverage_impl <- function(db, participant_id, sensor, frequency, relative, start
       "AppUsage", "Bluetooth",
       "Calendar", "InstalledApps", "TextMessage"
     )) {
-      tmp <- tmp %>%
-        mutate(measurement_id = substr(.data$measurement_id, 1, 36)) %>%
+      tmp <- tmp |>
+        mutate(measurement_id = substr(.data$measurement_id, 1, 36)) |>
         distinct()
     }
 
     # Calculate the number of average measurements per hour i.e. the sum of all measurements in
     # that hour divided by n
-    tmp <- tmp %>%
-      mutate(hour = strftime("%H", .data$time)) %>%
-      # mutate(Date = date(time)) %>%
-      dplyr::count(.data$date, .data$hour) %>%
-      group_by(.data$hour) %>%
+    tmp <- tmp |>
+      mutate(hour = strftime("%H", .data$time)) |>
+      # mutate(Date = date(time)) |>
+      dplyr::count(.data$date, .data$hour) |>
+      group_by(.data$hour) |>
       summarise(coverage = sum(.data$n, na.rm = TRUE) / n())
 
     # Transfer the result to R's memory and ensure it's numeric
-    tmp <- tmp %>%
-      collect() %>%
+    tmp <- tmp |>
+      collect() |>
       mutate(hour = as.numeric(.data$hour), coverage = as.numeric(.data$coverage))
 
     # Disconnect from the temporary database connection
@@ -270,13 +338,13 @@ coverage_impl <- function(db, participant_id, sensor, frequency, relative, start
     # Calculate the relative target frequency ratio by dividing the average number of measurements
     # per hour by the expected number of measurements
     if (relative) {
-      tmp <- tmp %>%
+      tmp <- tmp |>
         mutate(coverage = round(.data$coverage / frequency[.x], 2))
     }
 
-    tmp %>%
+    tmp |>
       # Pour into ggplot format
-      mutate(measure = .x) %>%
+      mutate(measure = .x) |>
       # Fill in missing hours with 0
       complete(hour = 0:23, measure = .x, fill = list(coverage = 0))
   }, .options = furrr::furrr_options(seed = TRUE))

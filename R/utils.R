@@ -76,7 +76,7 @@ ccopy <- function(from,
 #' @param files Alternatively, a character list of the input files
 #' @param recursive Should the listing recurse into directories?
 #'
-#' @return A message indicating how many files were fixed.
+#' @return A message indicating how many files were fixed, and the number of fixed files invisibly.
 #' @export
 #' @examples
 #' \dontrun{
@@ -84,9 +84,11 @@ ccopy <- function(from,
 #' files <- test_jsons()
 #' fix_jsons(files = files)
 #' }
-fix_jsons <- function(path = getwd(),
-                      files = NULL,
-                      recursive = TRUE) {
+fix_jsons <- function(
+    path = getwd(),
+    files = NULL,
+    recursive = TRUE) {
+
   ensure_suggested_package("vroom")
 
   check_arg(path, "character", n = 1, allow_null = TRUE)
@@ -139,11 +141,13 @@ fix_jsons_impl <- function(jsonfiles) {
       p()
     }
 
-    lines <- readLines(.x, warn = FALSE, skipNul = TRUE)
+    # Read the file in binary mode, so it doesn't stop reading when encountering illegal ASCIIs
+    con <- file(.x, open = "rb", blocking = TRUE)
+    lines <- readLines(con, warn = FALSE, skipNul = TRUE)
+    close(con)
     res <- 0L
 
-    # Are there any illegal characters in the file? If so, these prevent readLines from reading
-    # further and also need to be removed before parsing
+    # Are there any illegal characters in the file? If so, remove these before parsing.
     illegal_ascii <- any(grepl("[^ -~]", lines))
     if (illegal_ascii) {
       lines <- fix_illegal_ascii(.x, lines)
@@ -177,7 +181,10 @@ fix_illegal_ascii <- function(file, lines) {
   lines <- lines[-corrupt]
 
   # Write it to file
-  vroom::vroom_write_lines(lines, file, num_threads = 1)
+  con <- file(file, open = "wb", blocking = TRUE)
+  write(lines, file, append = FALSE)
+  flush(con)
+  close(con)
   lines
 }
 
@@ -218,6 +225,17 @@ fix_eof <- function(file, eof, lines) {
     # 8: Is the last line long (>3) and are the last two characters "}}"? Then somehow all
     # we are missing is a closing bracket.
     write("]", file, append = TRUE)
+  } else if (nchar(eof[2]) > 10 & substr(eof[2], nchar(eof[2]) - 2, nchar(eof[2])) == "}}," & last == "]"){
+    # 9: The second to last line is a full line (i.e. of a certain length, let's say 10), has a
+    # starting and end curly bracket, and a trailing comma before the last character of the file,
+    # the trailing square bracket. This can be fixed by removing the comman from the second to last
+    # line.
+    lines[length(lines) - 1] <- substr(
+      x = lines[length(lines) - 1],
+      start = 1,
+      stop = nchar(lines[length(lines) - 1]) - 1
+    )
+    write(lines, file)
   } else {
     # If no known pattern is detected, return without counting it as a fixed file
     return(0L)
@@ -245,10 +263,27 @@ fix_eof <- function(file, eof, lines) {
 #' @return A message indicating whether there were any issues and a character vector of the file
 #'   names that need to be fixed. If there were no issues, an invisible empty string is returned.
 #' @export
-test_jsons <- function(path = getwd(),
-                       files = NULL,
-                       db = NULL,
-                       recursive = TRUE) {
+#'
+#' @examples
+#' \dontrun{
+#' # Test all files in a directory
+#' test_jsons(path = "path/to/jsons", recursive = FALSE)
+#'
+#' # Test all files in a directory and its subdirectories
+#' test_jsons(path = "path/to/jsons", recursive = TRUE)
+#'
+#' # Test specific files
+#' test_jsons(files = c("file1.json", "file2.json"))
+#'
+#' # Test files in a directory, but skip those that are already in the database
+#' test_jsons(path = "path/to/jsons", db = db)
+#' }
+test_jsons <- function(
+    path = getwd(),
+    files = NULL,
+    db = NULL,
+    recursive = TRUE) {
+
   check_arg(path, "character", n = 1, allow_null = TRUE)
   check_arg(files, "character", allow_null = TRUE)
   check_arg(recursive, "logical", n = 1)
@@ -324,18 +359,35 @@ test_jsons <- function(path = getwd(),
 #'
 #' @return A message indicating how many files were unzipped.
 #' @export
-unzip_data <- function(path = getwd(),
-                       to = NULL,
-                       overwrite = FALSE,
-                       recursive = TRUE) {
+#'
+#' @examples
+#' \dontrun{
+#' # Unzip all files in a directory
+#' unzip_data(path = "path/to/zipfiles", to = "path/to/unzipped", recursive = FALSE)
+#'
+#' # Unzip all files in a directory and its subdirectories
+#' unzip_data(path = "path/to/zipfiles", to = "path/to/unzipped", recursive = TRUE)
+#'
+#' # Unzip specific files
+#' unzip_data(
+#'  path = "path/to/zipfiles",
+#'  to = "path/to/unzipped",
+#'  files = c("file1.zip", "file2.zip")
+#' )
+#'
+#' # Unzip files in a directory, but skip those that are already unzipped
+#' unzip_data(path = "path/to/zipfiles", to = "path/to/unzipped", overwrite = FALSE
+#' }
+unzip_data <- function(
+    path = getwd(),
+    to = NULL,
+    overwrite = FALSE,
+    recursive = TRUE) {
+
   check_arg(path, "character", n = 1)
   check_arg(to, "character", allow_null = TRUE, n = 1)
   check_arg(overwrite, "logical", n = 1)
   check_arg(recursive, "logical", n = 1)
-
-  if (is.null(to)) {
-    to <- path
-  }
 
   unzipped_files <- 0
   if (recursive) {
@@ -350,10 +402,19 @@ unzip_data <- function(path = getwd(),
       if (requireNamespace("progressr", quietly = TRUE)) {
         p()
       }
+
+      if (is.null(to)) {
+        to <- .x
+      }
+
       unzip_impl(.x, to, overwrite)
     })
     unzipped_files <- sum(unzipped_files)
   } else {
+    if (is.null(to)) {
+      to <- path
+    }
+
     unzipped_files <- unzip_impl(path, to, overwrite)
   }
 
@@ -378,7 +439,6 @@ unzip_impl <- function(path, to, overwrite) {
   }
 
   if (length(zipfiles) > 0) {
-    # TODO: implement error handling in case unzipping fails (e.g. unexpected end of data)
     lapply(zipfiles, function(x) {
       tryCatch(
         {

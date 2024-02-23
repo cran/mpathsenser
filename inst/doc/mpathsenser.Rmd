@@ -34,6 +34,8 @@ The data for this vignette is contained in the `extdata` folder. However, on som
 ```{r copy data, results="hide"}
 # Get the temp folder
 tempdir <- tempdir()
+tempdir <- file.path(tempdir, "vignette")
+dir.create(tempdir)
 
 # Get a handle to the data files
 path <- system.file("extdata", "example", package = "mpathsenser")
@@ -62,7 +64,7 @@ unzip_data(path = tempdir)
 
 In m-Path Sense, data is written to JSON files as it comes in. In the JSON file format, every file starts with `[` and ends with `]`. If the app is killed, JSON files are not properly closed and hence cannot be read by JSON parsers. So, we must first test if all files are in a valid JSON format and fix those that are not.
 
-While you can also call `fix_jsons` directly, it is generally safer (and faster) to first run `test_jsons` to get an idea of how many files need fixing.
+While you can also call `fix_jsons()` directly, it is generally safer (and faster) to first run `test_jsons()` to get an idea of how many files need fixing.
 
 ```{r fix and test JSONS}
 # Note that test_jsons returns the full path names

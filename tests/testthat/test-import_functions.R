@@ -1,182 +1,112 @@
 # Tests for import_functions.R
 
-# common_test ===========
-common_test <- function(sensor, ...) {
+# common_data ===========
+common_data <- function(sensor, ..., end_time = NULL) {
   tibble::tibble(
-    body = list(...),
     study_id = "test-study",
     participant_id = "12345",
-    start_time = "2021-11-14T16:40:00.123456Z",
-    timezone = "CET",
-    data_format = "carp",
-    sensor = sensor
+    data_format = "cams 1.0.0",
+    start_time = "2021-11-14 16:40:00.123456",
+    end_time = end_time,
+    sensor = sensor,
+    data = list(...)
   )
 }
 
 # unit_test ===========
-unit_test <- function(sensor, ...) {
+unit_test <- function(sensor, ..., .cols = NULL, new_names = NULL, end_time = NULL) {
   # Define the input
-  dat <- common_test(sensor, list(
-    body = list(
-      id = "12345a",
-      timestamp = "2021-11-14T16:40:01.123456Z",
-      ...
-    )
-  ))
+  dat <- common_data(
+    sensor,
+    list(
+      data = ...
+    ),
+    end_time = end_time
+  )
 
   # Execute the sensor function based on its name
-  res <- do.call(paste0(sensor, "_fun"), list(dat))
-  res_which <- which_sensor(dat, sensor)
+  class(dat) <- c(tolower(sensor), class(dat))
+  res <- unpack_sensor_data(dat)
 
-  # Check if there is a list column present since this must be unested first
-  depth <- lapply(list(...), function(x) length(x))
-  if (any(depth > 1)) {
-    true <- tibble::tibble(
-      measurement_id = "12345a",
-      participant_id = "12345",
-      date = "2021-11-14",
-      time = "16:40:00",
-      timezone = "CET",
-      ...
-    )
-    true$measurement_id <- paste0(true$measurement_id, "_", seq_len(true))
+  true <- tibble(
+    measurement_id = "12345a",
+    participant_id = "12345",
+    date = "2021-11-14",
+    time = "16:40:00.123",
+    end_time = end_time,
+    ...
+  )
 
-    true <- tidyr::unnest_wider(true, names(which(depth > 1)))
-    true <- as.data.frame(true)
-  } else {
-    true <- data.frame(
-      measurement_id = "12345a",
-      participant_id = "12345",
-      date = "2021-11-14",
-      time = "16:40:00",
-      timezone = "CET",
-      list(...)
-    )
+  # If there is a list column containing data, unlist it first
+  which_list <- colnames(true)[purrr::map_lgl(true, is.list)]
+  if (length(which_list) > 0) {
+    true <- tidyr::unnest_wider(true, all_of(which_list))
+  }
+
+  # Replace different-styled column names
+  if (!is.null(new_names)) {
+    colnames <- colnames(true)
+    colnames[colnames %in% new_names] <- names(new_names)
+    colnames(true) <- colnames
+  }
+
+  # Make sure all columns are present
+  if (!is.null(.cols)) {
+    missing <- setdiff(.cols, colnames(true))
+    if (length(missing) > 0) {
+      true[, missing] <- NA
+    }
   }
 
   # Make sure columns are in the same order
-  true <- true[, colnames(res)]
+  true <- dplyr::relocate(true, any_of(colnames(res)))
 
-  testthat::expect_equal(res, res_which)
-  testthat::expect_equal(res, true)
-  testthat::expect_equal(res_which, true)
+  # Check that a measurement_id is present, but don't check the value
+  expect_true("measurement_id" %in% colnames(res))
+  expect_type(res$measurement_id, "character")
+
+  # Test measurement_id length, but detect suffix
+  if (any(grepl("_", res$measurement_id))) {
+    expect_equal(unique(nchar(res$measurement_id)), 38) # 38 characters
+  } else {
+    expect_equal(unique(nchar(res$measurement_id)), 36) # 36 characters
+  }
+
+  res$measurement_id <- "12345a" # Hardcode the value to avoid checking it
+
+  true <- as.data.frame(true)
+  expect_equal(res, true)
 }
 
-test_that("save2db", {
-  # Create db
-  filename <- tempfile("foo", fileext = ".db")
-  db <- create_db(NULL, filename)
+# rand ===========
+test_that("rand works", {
+  # Return a string of correct length
+  expect_equal(nchar(rand(10)), 10)
+  expect_equal(nchar(rand(5)), 5)
 
-  dbExecute(db, "INSERT INTO Study VALUES('12345', 'mpathsenser')")
-  dbExecute(db, "INSERT INTO Participant VALUES('12345', '12345')")
-  db_size <- file.size(filename)
+  # rand handles combination of characters and numbers correctly
+  # Assuming the default behaviour includes both letters and numbers
+  sample <- rand(100)
+  expect_true(any(grepl("[a-z]", sample)) & any(grepl("[0-9]", sample)))
 
-  # Define the data
-  data <- data.frame(
-    measurement_id = paste0("12345_", 1:1000),
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:01.123",
-    timezone = "CET",
-    x = 0.123456789,
-    y = 0.123456789,
-    z = 9.123456789,
-    x_mean = 1.123456789,
-    y_mean = 2.123456789,
-    z_mean = 3.123456789,
-    x_mean_sq = 4.123456789,
-    y_mean_sq = 5.123456789,
-    z_mean_sq = 6.123456789,
-    n = 10
-  )
+  # rand returns only uppercase when uppercase=TRUE
+  sample <- rand(10, uppercase = TRUE)
+  expect_true(all(grepl("[A-Z0-9]", sample)))
 
-  # Write to db
-  expect_error(
-    DBI::dbWithTransaction(db, save2db(db, "Accelerometer", data)),
-    NA
-  )
+  # rand aborts when both chars and numbers are FALSE
+  expect_error(rand(10, chars = FALSE, numbers = FALSE))
+})
 
-  # Check if the file size increased
-  db_size2 <- file.size(filename)
-  expect_gt(db_size2, db_size)
+# gen_id ==============
+test_that("gen_id works", {
+  # Return a string of correct format and length
+  id <- gen_id()
+  expect_equal(nchar(id), 36) # Format: 8-4-4-4-12 = 32 chars + 4 hyphens
+  expect_match(id, "^([a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})$")
 
-  # Check the data output
-  expect_equal(
-    DBI::dbGetQuery(db, "SELECT * FROM Accelerometer"),
-    data
-  )
-
-  # Entry with the same ID should simply be skipped and give no error
-  expect_error(
-    DBI::dbWithTransaction(db, save2db(db = db, name = "Accelerometer", data = data)),
-    NA
-  )
-  DBI::dbExecute(db, "VACUUM") # A vacuum to clear the tiny increase by replacement :)
-  db_size3 <- file.size(filename)
-  expect_equal(db_size2, db_size3)
-  expect_equal(DBI::dbGetQuery(db, "SELECT COUNT(*) FROM Accelerometer")[[1]], 1000L)
-  expect_equal(
-    DBI::dbGetQuery(db, "SELECT * FROM Accelerometer"),
-    data
-  )
-
-  # Now try with part of the data being replicated
-  data <- rbind(data, data.frame(
-    measurement_id = paste0("12345_", 500:1500),
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:01.123",
-    timezone = "CET",
-    x = 0.123456789,
-    y = 0.123456789,
-    z = 9.123456789,
-    x_mean = 1.123456789,
-    y_mean = 2.123456789,
-    z_mean = 3.123456789,
-    x_mean_sq = 4.123456789,
-    y_mean_sq = 5.123456789,
-    z_mean_sq = 6.123456789,
-    n = 10
-  ))
-
-  expect_error(
-    DBI::dbWithTransaction(
-      db,
-      save2db(
-        db = db,
-        name = "Accelerometer",
-        data = data.frame(
-          measurement_id = paste0("12345_", 500:1500),
-          participant_id = "12345",
-          date = "2021-11-14",
-          time = "16:40:01.123",
-          timezone = "CET",
-          x = 0.123456789,
-          y = 0.123456789,
-          z = 9.123456789,
-          x_mean = 1.123456789,
-          y_mean = 2.123456789,
-          z_mean = 3.123456789,
-          x_mean_sq = 4.123456789,
-          y_mean_sq = 5.123456789,
-          z_mean_sq = 6.123456789,
-          n = 10
-        )
-      )
-    ),
-    NA
-  )
-  db_size4 <- file.size(filename)
-  expect_gt(db_size4, db_size3)
-  expect_equal(DBI::dbGetQuery(db, "SELECT COUNT(*) FROM Accelerometer")[[1]], 1500L)
-  expect_equal(
-    DBI::dbGetQuery(db, "SELECT * FROM Accelerometer"),
-    distinct(data)
-  )
-
-  # Cleanup
-  dbDisconnect(db)
-  file.remove(filename)
+  # gen_id returns a string with uppercase characters when uppercase=TRUE"
+  id_upper <- gen_id(uppercase = TRUE)
+  expect_match(id_upper, "^([A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{12})$")
 })
 
 # safe_data_frame  ===========
@@ -198,326 +128,116 @@ test_that("safe_tibble", {
   expect_equal(res2, true)
 })
 
-# Accelerometer ===========
+# Accelerometer =========
 test_that("accelerometer", {
-  dat <- common_test(
+  col_names <- c(
+    "n","x_mean","y_mean","z_mean","x_median","y_median","z_median","x_std","y_std","z_std","x_aad",
+    "y_aad","z_aad","x_min","y_min","z_min","x_max","y_max","z_max","x_max_min_diff",
+    "y_max_min_diff","z_max_min_diff","x_mad","y_mad","z_mad","x_iqr","y_iqr","z_iqr","x_neg_n",
+    "y_neg_n","z_neg_n","x_pos_n","y_pos_n","z_pos_n","x_above_mean","y_above_mean","z_above_mean",
+    "x_energy","y_energy","z_energy","avg_res_acc","sma"
+  )
+
+  unit_test(
     "accelerometer",
-    list(
-      body = list(
-        id = "12345a",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        x = 0.123456789,
-        y = 0.123456789,
-        z = 9.123456789,
-        xm = 1.123456789,
-        ym = 2.123456789,
-        zm = 3.123456789,
-        xms = 4.123456789,
-        yms = 5.123456789,
-        zms = 6.123456789,
-        n = 10
-      )
-    ),
-    list(
-      body = list(
-        id = "12345b",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        x = NA,
-        y = NA,
-        z = NA,
-        x_mean = NA,
-        y_mean = NA,
-        z_mean = NA,
-        x_mean_sq = NA,
-        y_mean_sq = NA,
-        z_mean_sq = NA,
-        n = NA
-      )
-    )
+    end_time = "2021-11-14 16:40:05.123456",
+    .cols = col_names,
+    new_names = c(n = "count"),
+    count = 100
   )
 
-  res <- accelerometer_fun(dat)
-  res_which <- which_sensor(dat, "accelerometer")
-  true <- data.frame(
-    measurement_id = c("12345a", "12345b"),
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:01.123",
-    timezone = "CET",
-    x = c(0.123456789, NA),
-    y = c(0.123456789, NA),
-    z = c(9.123456789, NA),
-    x_mean = c(1.123456789, NA),
-    y_mean = c(2.123456789, NA),
-    z_mean = c(3.123456789, NA),
-    x_mean_sq = c(4.123456789, NA),
-    y_mean_sq = c(5.123456789, NA),
-    z_mean_sq = c(6.123456789, NA),
-    n = c(10, NA)
-  )
-
-  expect_equal(res, res_which)
-  expect_equal(res, true)
-  expect_equal(res_which, true)
-})
-
-# Gyroscope ===========
-test_that("gyroscope", {
-  dat <- common_test(
-    "gyroscope",
-    list(
-      body = list(
-        id = "12345a",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        x = 0.123456789,
-        y = 0.123456789,
-        z = 9.123456789,
-        xm = 1.123456789,
-        ym = 2.123456789,
-        zm = 3.123456789,
-        xms = 4.123456789,
-        yms = 5.123456789,
-        zms = 6.123456789,
-        n = 10
-      )
-    ),
-    list(
-      body = list(
-        id = "12345b",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        x = NA,
-        y = NA,
-        z = NA
-      )
-    )
-  )
-
-  res <- gyroscope_fun(dat)
-  res_which <- which_sensor(dat, "gyroscope")
-  true <- data.frame(
-    measurement_id = c("12345a", "12345b"),
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:01.123",
-    timezone = "CET",
-    x = c(0.123456789, NA),
-    y = c(0.123456789, NA),
-    z = c(9.123456789, NA),
-    x_mean = c(1.123456789, NA),
-    y_mean = c(2.123456789, NA),
-    z_mean = c(3.123456789, NA),
-    x_mean_sq = c(4.123456789, NA),
-    y_mean_sq = c(5.123456789, NA),
-    z_mean_sq = c(6.123456789, NA),
-    n = c(10, NA)
-  )
-
-  expect_equal(res, res_which)
-  expect_equal(res, true)
-  expect_equal(res_which, true)
-})
-
-# Periodic accelerometer ===========
-test_that("periodic_accelerometer", {
-  dat <- common_test(
+  unit_test(
     "accelerometer",
-    list(
-      body = list(
-        id = "12345a",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        data = list(
-          list(
-            timestamp = "2021-11-14T16:40:01.223456Z",
-            x = 1.12345,
-            y = -0.1234,
-            z = 0.123456
-          ),
-          list(
-            timestamp = "2021-11-14T16:40:01.323456Z",
-            x = 1.12345,
-            y = -0.1234,
-            z = 0.123456
-          )
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345b",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        data = list(
-          list(
-            timestamp = "2021-11-14T16:40:01.223456Z",
-            x = 1.12345,
-            y = -0.1234,
-            z = 0.123456
-          ),
-          list(
-            timestamp = "2021-11-14T16:40:01.323456Z",
-            x = 1.12345,
-            y = -0.1234,
-            z = 0.123456
-          )
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345c",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        data = list(
-          list(
-            timestamp = "2021-11-14T16:40:01.223456Z",
-            x = NA,
-            y = NA,
-            z = NA
-          ),
-          list(
-            timestamp = "2021-11-14T16:40:01.323456Z",
-            x = NA,
-            y = NA,
-            z = NA
-          )
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345d",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        data = list(
-          list(
-            timestamp = "2021-11-14T16:40:01.223456Z"
-          )
-        )
-      )
-    )
+    .cols = col_names,
+    end_time = "2021-11-14 16:40:05.123456",
+    n = 100,
+    x_mean = 0.1,
+    y_mean = 0.2,
+    z_mean = 0.3,
+    x_median = 0.1,
+    y_median = 0.2,
+    z_median = 0.3,
+    x_std = 0.1,
+    y_std = 0.2,
+    z_std = 0.3,
+    x_aad = 0.1,
+    y_aad = 0.2,
+    z_aad = 0.3,
+    x_min = 0.1,
+    y_min = 0.2,
+    z_min = 0.3,
+    x_max = 0.1,
+    y_max = 0.2,
+    z_max = 0.3,
+    x_max_min_diff = 0.1,
+    y_max_min_diff = 0.2,
+    z_max_min_diff = 0.3,
+    x_mad = 0.1,
+    y_mad = 0.2,
+    z_mad = 0.3,
+    x_iqr = 0.1,
+    y_iqr = 0.2,
+    z_iqr = 0.3,
+    x_neg_n = 1,
+    y_neg_n = 2,
+    z_neg_n = 3,
+    x_pos_n = 1,
+    y_pos_n = 2,
+    z_pos_n = 3,
+    x_above_mean = 1,
+    y_above_mean = 2,
+    z_above_mean = 3,
+    x_energy = 0.1,
+    y_energy = 0.2,
+    z_energy = 0.3,
+    avg_res_acc = 0.1,
+    sma = 0.1
   )
-  res <- accelerometer_fun(dat)
-  true <- data.frame(
-    measurement_id = c(
-      "12345a_1", "12345a_2", "12345b_1",
-      "12345b_2", "12345c_1", "12345c_2", "12345d_1"
-    ),
-    participant_id = rep("12345", 7),
-    date = "2021-11-14",
-    time = c(rep(c("16:40:01.223", "16:40:01.323"), 3), "16:40:01.223"),
-    timezone = "CET",
-    x = c(rep(1.12345, 4), NA, NA, NA),
-    y = c(rep(-0.1234, 4), NA, NA, NA),
-    z = c(rep(0.123456, 4), NA, NA, NA),
-    x_mean = rep(NA, 7),
-    y_mean = rep(NA, 7),
-    z_mean = rep(NA, 7),
-    x_mean_sq = rep(NA, 7),
-    y_mean_sq = rep(NA, 7),
-    z_mean_sq = rep(NA, 7),
-    n = rep(NA, 7)
+  unit_test(
+    "accelerometer",
+    end_time = NA,
+    .cols = col_names
   )
-  expect_equal(res, true)
-})
 
-# Periodic gyroscope ===========
-test_that("periodic_gyroscope", {
-  dat <- common_test(
-    "gyroscope",
-    list(
-      body = list(
-        id = "12345a",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        data = list(
-          list(
-            timestamp = "2021-11-14T16:40:01.223456Z",
-            x = 1.12345,
-            y = -0.1234,
-            z = 0.123456
-          ),
-          list(
-            timestamp = "2021-11-14T16:40:01.323456Z",
-            x = 1.12345,
-            y = -0.1234,
-            z = 0.123456
-          )
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345b",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        data = list(
-          list(
-            timestamp = "2021-11-14T16:40:01.223456Z",
-            x = 1.12345,
-            y = -0.1234,
-            z = 0.123456
-          ),
-          list(
-            timestamp = "2021-11-14T16:40:01.323456Z",
-            x = 1.12345,
-            y = -0.1234,
-            z = 0.123456
-          )
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345c",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        data = list(
-          list(
-            timestamp = "2021-11-14T16:40:01.223456Z",
-            x = NA,
-            y = NA,
-            z = NA
-          ),
-          list(
-            timestamp = "2021-11-14T16:40:01.323456Z",
-            x = NA,
-            y = NA,
-            z = NA
-          )
-        )
-      )
+  # Test non-existing column
+  expect_error(
+    unit_test(
+      "accelerometer",
+      end_time = NA,
+      foo = 1,
+      .cols = col_names
     )
   )
-  res <- gyroscope_fun(dat)
-  true <- data.frame(
-    measurement_id = c("12345a_1", "12345a_2", "12345b_1", "12345b_2", "12345c_1", "12345c_2"),
-    participant_id = rep("12345", 3),
-    date = "2021-11-14",
-    time = rep(c("16:40:01.223", "16:40:01.323"), 3),
-    timezone = "CET",
-    x = c(rep(1.12345, 4), NA, NA),
-    y = c(rep(-0.1234, 4), NA, NA),
-    z = c(rep(0.123456, 4), NA, NA),
-    x_mean = rep(NA, 6),
-    y_mean = rep(NA, 6),
-    z_mean = rep(NA, 6),
-    x_mean_sq = rep(NA, 6),
-    y_mean_sq = rep(NA, 6),
-    z_mean_sq = rep(NA, 6),
-    n = rep(NA, 6)
-  )
-  expect_equal(res, true)
 })
 
 # Activity ===========
 test_that("activity", {
-  unit_test("activity",
+  col_names <- c("confidence", "type")
+
+  unit_test(
+    "activity",
+    .cols = col_names,
     confidence = 80,
     type = "WALKING"
   )
-  unit_test("activity",
-    confidence = NA,
-    type = NA
+  unit_test(
+    "activity",
+    .cols = col_names
   )
 })
 
 # Air Quality ===========
 test_that("air_quality", {
-  unit_test("air_quality",
+  col_names = c("air_quality_index", "air_quality_level", "source", "place", "latitude", "longitude")
+
+  new_names <- c(
+    air_quality_index = "airQualityIndex",
+    air_quality_level = "airQualityLevel"
+  )
+
+  unit_test(
+    "airquality",
+    .cols = col_names,
     air_quality_index = 30,
     air_quality_level = "GOOD",
     source = "IRCEL-CELINE - Belgian Interregional Environment Agency",
@@ -525,709 +245,714 @@ test_that("air_quality", {
     latitude = 50.12345678901234,
     longitude = 4.12345678901234
   )
-  unit_test("air_quality",
-    air_quality_index = NA,
-    air_quality_level = NA,
-    source = NA,
-    place = NA,
-    latitude = NA,
-    longitude = NA
+  unit_test(
+    "airquality",
+    .cols = col_names,
+    airQualityIndex = 30,
+    airQualityLevel = "GOOD",
+    source = "IRCEL-CELINE - Belgian Interregional Environment Agency",
+    place = "Aarschot, Belgium",
+    latitude = 50.12345678901234,
+    longitude = 4.12345678901234,
+    new_names = new_names
+  )
+  unit_test(
+    "airquality",
+    .cols = col_names,
+    airQualityIndex = NA,
+    airQualityLevel = NA,
+    new_names = new_names
   )
 })
 
-# Installed Apps ===========
-test_that("installed_apps", {
-  dat <- common_test(
-    "apps",
+# AppUsage ==========
+test_that("appusage", {
+  # Test with empty usage
+  dat <- common_data(
+    sensor = "appusage",
+    end_time = "2024-01-24 20:46:40.434183",
     list(
-      body = list(
-        id = "12345a",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        installed_apps = list("a", "b", "c")
-      )
-    ),
-    list(
-      body = list(
-        id = "12345a",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        installed_apps = list()
-      )
-    )
-  )
-  res <- apps_fun(dat)
-  res_which <- which_sensor(dat, "apps")
-  true <- data.frame(
-    measurement_id = c("12345a_1", "12345a_2", "12345a_3", "12345a_4"),
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:00",
-    timezone = "CET",
-    app = c("a", "b", "c", NA)
-  )
-
-  expect_equal(res, res_which)
-  expect_equal(res, true)
-  expect_equal(res_which, true)
-})
-
-# App usage ===========
-test_that("app_usage", {
-  dat <- common_test(
-    "app_usage",
-    list(
-      body = list(
-        id = "12345a",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        start = "2021-11-15T14:05:00.123456Z",
-        end = "2021-11-15T14:35.00.123456Z",
-        usage = list(
-          a = 10,
-          b = 5,
-          c = 7
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345b",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        start = "2021-11-15T14:05:00.123456Z",
-        end = "2021-11-15T14:35.00.123456Z",
-        usage = list(
-          a = 10,
-          b = 5,
-          c = 7
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345c",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        start = NA,
-        end = NA,
-        usage = list()
-      )
-    ),
-    list(
-      body = list(
-        id = "12345d",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        start = NA,
-        end = NA
-      )
+      start = "2024-01-24 20:16:40.434183",
+      end = "2024-01-24 20:46:40.434183",
+      usage = list()
     )
   )
 
-  res <- app_usage_fun(dat)
-  res_which <- which_sensor(dat, "app_usage")
-  true <- data.frame(
-    measurement_id = c(
-      "12345a_1", "12345a_2", "12345a_3", "12345b_1",
-      "12345b_2", "12345b_3", "12345c_1", "12345d_1"
-    ),
+  # Execute the sensor function based on its name
+  class(dat) <- c(tolower("appusage"), class(dat))
+  res <- unpack_sensor_data(dat)
+
+  true <- tibble(
+    measurement_id = "12345a",
     participant_id = "12345",
     date = "2021-11-14",
-    time = "16:40:00",
-    timezone = "CET",
-    start = c(rep("2021-11-15T14:05:00.123456Z", 6), NA, NA),
-    end = c(rep("2021-11-15T14:35.00.123456Z", 6), NA, NA),
-    usage = c(rep(c(10, 5, 7), 2), NA, NA),
-    app = c(rep(c("a", "b", "c"), 2), "", "")
-  )
-
-  expect_equal(res, res_which)
-  expect_equal(res, true)
-  expect_equal(res_which, true)
-
-  # Test without "usage" column
-  dat <- common_test(
-    "app_usage",
-    list(
-      body = list(
-        id = "12345a",
-        timestamp = "2021-11-14T16:40:01.123456Z",
-        start = "2021-11-15T14:05:00.123456Z",
-        end = "2021-11-15T14:35.00.123456Z"
-      )
-    )
-  )
-  res <- app_usage_fun(dat)
-  res_which <- which_sensor(dat, "app_usage")
-  true <- data.frame(
-    measurement_id = "12345a_1",
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:00",
-    timezone = "CET",
-    start = "2021-11-15T14:05:00.123456Z",
-    end = "2021-11-15T14:35.00.123456Z",
+    time = "16:40:00.123",
+    end_time = "2024-01-24 20:46:40.434183",
+    start = "2024-01-24 20:16:40.434183",
+    end = "2024-01-24 20:46:40.434183",
     usage = NA,
-    app = NA
+    app = NA,
+    package_name = NA,
+    last_foreground = NA
   )
-  expect_equal(res, res_which)
+
+  # Check that a measurement_id is present, but don't check the value
+  expect_true("measurement_id" %in% colnames(res))
+  expect_type(res$measurement_id, "character")
+  expect_match(res$measurement_id, ".{36}") # 36 characters
+  res$measurement_id <- "12345a" # Hardcode the value to avoid checking it
+
+  true <- as.data.frame(true)
   expect_equal(res, true)
-  expect_equal(res_which, true)
+
+  dat <- common_data(
+    sensor = "appusage",
+    end_time = "2024-01-24 20:46:40.434183",
+    list(
+      start = "2024-01-24 20:16:40.434183",
+      end = "2024-01-24 20:46:40.434183",
+      usage = list(
+        com.google.android.maps = list(
+          packageName = "com.google.android.maps",
+          appName = "Google Maps",
+          usage = 100,
+          startDate = "2021-11-14 16:40:05.123456",
+          endDate = "2021-11-14 16:40:05.123456",
+          lastForeground = "2021-11-14 16:40:05.123456"
+        ),
+        com.google.android.youtube = list(
+          packageName = "com.google.android.youtube",
+          appName = "YouTube",
+          usage = 100,
+          startDate = "2021-11-14 16:40:05.123456",
+          endDate = "2021-11-14 16:40:05.123456",
+          lastForeground = "2021-11-14 16:40:05.123456"
+        )
+      )
+    )
+  )
+
+  # Execute the sensor function based on its name
+  class(dat) <- c(tolower("appusage"), class(dat))
+  res <- unpack_sensor_data(dat)
+
+  true <- tibble(
+    measurement_id = "12345a",
+    participant_id = "12345",
+    date = "2021-11-14",
+    time = "16:40:00.123",
+    end_time = "2024-01-24 20:46:40.434183",
+    start = c("2021-11-14 16:40:05.123456", "2021-11-14 16:40:05.123456"),
+    end = c("2021-11-14 16:40:05.123456", "2021-11-14 16:40:05.123456"),
+    usage = c(100, 100),
+    app = c("Google Maps", "YouTube"),
+    package_name = c("com.google.android.maps", "com.google.android.youtube"),
+    last_foreground = c("2021-11-14 16:40:05.123456", "2021-11-14 16:40:05.123456")
+  )
+
+  # Check that a measurement_id is present, but don't check the value
+  expect_true("measurement_id" %in% colnames(res))
+  expect_type(res$measurement_id, "character")
+  expect_equal(unique(nchar(res$measurement_id)), 38) # 38 characters, because of suffix
+  res$measurement_id <- "12345a" # Hardcode the value to avoid checking it
+
+  true <- as.data.frame(true)
+  expect_equal(res, true)
+
+
+  # Repeat but with different column names
+  dat2 <- common_data(
+    sensor = "appusage",
+    end_time = "2024-01-24 20:46:40.434183",
+    list(
+      start = "2024-01-24 20:16:40.434183",
+      end = "2024-01-24 20:46:40.434183",
+      usage = list(
+        com.google.android.maps = list(
+          package_name = "com.google.android.maps",
+          app_name = "Google Maps",
+          usage = 100,
+          start_date = "2021-11-14 16:40:05.123456",
+          end_date = "2021-11-14 16:40:05.123456",
+          last_foreground = "2021-11-14 16:40:05.123456"
+        ),
+        com.google.android.youtube = list(
+          package_name = "com.google.android.youtube",
+          app_name = "YouTube",
+          usage = 100,
+          start_date = "2021-11-14 16:40:05.123456",
+          end_date = "2021-11-14 16:40:05.123456",
+          last_foreground = "2021-11-14 16:40:05.123456"
+        )
+      )
+    )
+  )
+
+  # Execute the sensor function based on its name
+  class(dat2) <- c(tolower("appusage"), class(dat2))
+  res2 <- unpack_sensor_data(dat2)
+
+  # Check that a measurement_id is present, but don't check the value
+  expect_true("measurement_id" %in% colnames(res2))
+  expect_type(res2$measurement_id, "character")
+  expect_equal(unique(nchar(res2$measurement_id)), 38) # 38 characters, because of suffix
+  res2$measurement_id <- "12345a" # Hardcode the value to avoid checking it
+
+  true <- as.data.frame(true)
+  expect_equal(res2, true)
+  expect_identical(res, res2)
 })
 
 # Battery ===========
 test_that("battery", {
-  unit_test("battery",
-    battery_level = 85,
-    battery_status = "discharging"
+  .cols <- c("battery_level", "battery_status")
+  new_names <- c(
+    battery_level = "batteryLevel",
+    battery_status = "batteryStatus"
   )
-  unit_test("battery",
-    battery_level = NA,
-    battery_status = NA
+
+  unit_test(
+    "battery",
+    .cols = .cols
+  )
+
+  unit_test(
+    "battery",
+    .cols = .cols,
+    battery_level = 80,
+    battery_status = "CHARGING"
+  )
+
+  unit_test(
+    "battery",
+    .cols = .cols,
+    batteryLevel = 80,
+    batteryStatus = "CHARGING",
+    new_names = new_names
   )
 })
 
-# Bluetooth ===========
+# Bluetooth ===============
 test_that("bluetooth", {
-  dat <- common_test(
+  .cols <- c(
+    "start_scan", "end_scan", "advertisement_name", "bluetooth_device_id",
+    "bluetooth_device_name", "bluetooth_device_type", "connectable", "rssi",
+    "tx_power_level"
+  )
+  new_names <- c(
+    start_scan = "startScan",
+    end_scan = "endScan",
+    advertisement_name = "advertisementName",
+    bluetooth_device_id = "bluetoothDeviceId",
+    bluetooth_device_name = "bluetoothDeviceName",
+    bluetooth_device_type = "bluetoothDeviceType",
+    connectable = "connectable",
+    rssi = "rssi",
+    tx_power_level = "txPowerLevel"
+  )
+
+  unit_test(
     "bluetooth",
-    list(
-      body = list(
-        id = "12345a",
-        timestamp = "2021-11-14T16:40:00.123456Z",
-        scan_result = list(
-          list(
-            advertisement_name = "123abc",
-            bluetooth_device_id = "def456",
-            bluetooth_device_name = "789abc",
-            bluetooth_device_type = "le",
-            connectable = TRUE,
-            tx_power_level = 50,
-            rssi = -70
-          ),
-          list(
-            advertisement_name = "123abc",
-            bluetooth_device_id = "def456",
-            bluetooth_device_name = "789abc",
-            bluetooth_device_type = "le",
-            connectable = TRUE,
-            tx_power_level = 50,
-            rssi = -70
-          )
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345b",
-        timestamp = "2021-11-14T16:40:00.123456Z",
-        scan_result = list(
-          list(
-            advertisement_name = NA,
-            bluetooth_device_id = NA,
-            bluetooth_device_name = NA,
-            bluetooth_device_type = NA,
-            connectable = NA,
-            tx_power_level = NA,
-            rssi = NA
-          )
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345c",
-        timestamp = "2021-11-14T16:40:00.123456Z",
-        scan_result = list()
+    .cols = .cols
+  )
+
+  unit_test(
+    "bluetooth",
+    .cols = .cols,
+    scan_result = list(NULL)
+  )
+
+  unit_test(
+    "bluetooth",
+    .cols = .cols,
+    scan_result = list(
+      list(
+        start_scan = "2021-11-14 16:40:05.123456",
+        end_scan = "2021-11-14 16:40:05.123456",
+        advertisement_name = "Samsung TV",
+        bluetooth_device_id = "00:11:22:33:44:55",
+        bluetooth_device_name = "Samsung TV",
+        bluetooth_device_type = "BLE",
+        connectable = TRUE,
+        rssi = -50,
+        tx_power_level = -50
       )
     )
   )
 
-  res <- bluetooth_fun(dat)
-  res_which <- which_sensor(dat, "bluetooth")
-  true <- data.frame(
-    measurement_id = c("12345a_1", "12345a_2", "12345b_1", "12345c_1"),
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:00",
-    timezone = "CET",
-    advertisement_name = c("123abc", "123abc", NA, NA),
-    bluetooth_device_id = c("def456", "def456", NA, NA),
-    bluetooth_device_name = c("789abc", "789abc", NA, NA),
-    bluetooth_device_type = c("le", "le", NA, NA),
-    connectable = c(TRUE, TRUE, NA, NA),
-    rssi = c(-70, -70, NA, NA),
-    tx_power_level = c(50, 50, NA, NA)
-  )
-
-  expect_equal(res, res_which)
-  expect_equal(res, true)
-  expect_equal(res_which, true)
-})
-
-# Calendar ===========
-test_that("calendar", {
-  dat <- common_test(
-    "calendar",
-    list(
-      body = list(
-        id = "12345a",
-        calendar_events = list(
-          list(
-            event_id =
-              "8752301D-3AE5-A7FF-6822-867418B8CC3E:F81E8964C1BC1C48365F9",
-            calendar_id = "45ED76B4-87A1-D7E0-FA93-A7A1F64CF3E7",
-            title = "96475fc78435bef84354fc05dd185ac944c5c3c1",
-            description = "81af04ac942e1bbf4f3c638b086395dfabe2164a",
-            start = "2021-11-14T13:00:00.000Z",
-            end = "2021-11-14T13:30:00.000Z",
-            all_day = FALSE,
-            location = "Microsoft Teams Meeting",
-            attendees = list(
-              "a",
-              "b",
-              NA,
-              "NA"
-            )
-          ),
-          list(
-            event_id =
-              "8752301D-3AE5-A7FF-6822-867418B8CC3E:F81E8964C1BC1C48365F9",
-            calendar_id = "45ED76B4-87A1-D7E0-FA93-A7A1F64CF3E7",
-            title = "96475fc78435bef84354fc05dd185ac944c5c3c1",
-            description = "81af04ac942e1bbf4f3c638b086395dfabe2164a",
-            start = "2021-11-14T13:00:00.000Z",
-            end = "2021-11-14T13:30:00.000Z",
-            all_day = FALSE,
-            location = "Microsoft Teams Meeting",
-            attendees = vector("list", 0)
-          ),
-          list(
-            event_id =
-              "8752301D-3AE5-A7FF-6822-867418B8CC3E:F81E8964C1BC1C48365F9",
-            calendar_id = "45ED76B4-87A1-D7E0-FA93-A7A1F64CF3E7",
-            title = "96475fc78435bef84354fc05dd185ac944c5c3c1",
-            description = "81af04ac942e1bbf4f3c638b086395dfabe2164a",
-            start = "2021-11-14T13:00:00.000Z",
-            end = "2021-11-14T13:30:00.000Z",
-            all_day = FALSE,
-            location = "Microsoft Teams Meeting",
-            attendees = list(NA)
-          ),
-          list()
-        )
+  unit_test(
+    "bluetooth",
+    .cols = .cols,
+    scan_result = list(
+      list(
+        startScan = "2021-11-14 16:40:05.123456",
+        endScan = "2021-11-14 16:40:05.123456",
+        advertisementName = "Samsung TV",
+        bluetoothDeviceId = "00:11:22:33:44:55",
+        bluetoothDeviceName = "Samsung TV",
+        bluetoothDeviceType = "BLE",
+        connectable = TRUE,
+        rssi = -50,
+        txPowerLevel = -50
       )
     ),
-    list(
-      body = list(
-        id = "12345b",
-        calendar_events = list()
-      )
-    )
+    new_names = new_names
   )
-
-  res <- calendar_fun(dat)
-  res_which <- which_sensor(dat, "calendar")
-  true <- data.frame(
-    measurement_id = c("12345a_1", "12345a_2", "12345a_3", "12345a_4", "12345b_1"),
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:00",
-    timezone = "CET",
-    event_id = c(rep("8752301D-3AE5-A7FF-6822-867418B8CC3E:F81E8964C1BC1C48365F9", 3), NA, NA),
-    calendar_id = c(rep("45ED76B4-87A1-D7E0-FA93-A7A1F64CF3E7", 3), NA, NA),
-    title = c(rep("96475fc78435bef84354fc05dd185ac944c5c3c1", 3), NA, NA),
-    description = c(rep("81af04ac942e1bbf4f3c638b086395dfabe2164a", 3), NA, NA),
-    start = c(rep("2021-11-14T13:00:00.000Z", 3), NA, NA),
-    end = c(rep("2021-11-14T13:30:00.000Z", 3), NA, NA),
-    all_day = c(rep(FALSE, 3), NA, NA),
-    location = c(rep("Microsoft Teams Meeting", 3), NA, NA),
-    attendees = c("a, b, NA, NA", NA, NA, NA, NA)
-  )
-
-  expect_equal(res, res_which)
-  expect_equal(res, true)
-  expect_equal(res_which, true)
 })
 
-# Connectivity ===========
+# Connectivity ============
 test_that("connectivity", {
-  unit_test("connectivity",
-    connectivity_status = "wifi"
+  unit_test(
+    "connectivity",
+    .cols = "connectivity_status"
   )
-  unit_test("connectivity",
-    connectivity_status = NA
+  unit_test(
+    "connectivity",
+    .cols = "connectivity_status",
+    connectivity_status = "Mobile"
+  )
+  unit_test(
+    "connectivity",
+    .cols = "connectivity_status",
+    new_names = c(connectivity_status = "connectivityStatus"),
+    connectivityStatus = "Mobile"
   )
 })
-
 
 # Device ===========
 test_that("device", {
-  unit_test("device",
-    platform = "IOS",
-    device_id = "AB12CD34F5-12AA-34B5-67890-123AA45678901",
-    hardware = "iPhone10,4",
-    device_name = "Dory",
+  .cols <- c(
+    "device_id", "hardware", "device_name", "device_manufacturer", "device_model",
+    "operating_system", "platform", "operating_system_version", "sdk"
+  )
+  new_names <- c(
+    device_id = "deviceId",
+    hardware = "hardware",
+    device_name = "deviceName",
+    device_manufacturer = "deviceManufacturer",
+    device_model = "deviceModel",
+    operating_system = "operatingSystem",
+    platform = "platform",
+    operating_system_version = "operatingSystemVersion",
+    sdk = "sdk"
+  )
+
+  unit_test(
+    "device",
+    .cols = .cols
+  )
+
+  unit_test(
+    "device",
+    .cols = .cols,
+    device_id = "1234567890",
+    hardware = "iPhone",
+    device_name = "iPhone 12",
     device_manufacturer = "Apple",
-    device_model = "iPhone",
-    operating_system = "iOS"
+    device_model = "iPhone 12",
+    operating_system = "iOS",
+    platform = "iOS",
+    operating_system_version = "15.0",
+    sdk = "1.0.0"
   )
-  unit_test("device",
-    platform = NA,
-    device_id = NA,
-    hardware = NA,
-    device_name = NA,
-    device_manufacturer = NA,
-    device_model = NA,
-    operating_system = NA
+
+  # iOS
+  # TODO: Add deviceData
+  unit_test(
+    "device",
+    .cols = .cols,
+    deviceId = "1234567890",
+    hardware = "iPhone",
+    deviceName = "iPhone 12",
+    deviceManufacturer = "Apple",
+    deviceModel = "iPhone 12",
+    operatingSystem = "iOS",
+    platform = "iOS",
+    operatingSystemVersion = "15.0",
+    # deviceData = list(
+    #   utsName = list(
+    #     sysname = "Darwin",
+    #     nodename = "iPhone",
+    #     release = "15.0",
+    #     version = "15.0.0",
+    #     machine = "iPhone12,1"
+    #   ),
+    #   systemVersion = "15.0"
+    # ),
+    sdk = "1.0.0",
+    new_names = new_names
   )
 })
 
-# Error ===========
+# Error ========
 test_that("error", {
-  unit_test("error",
-    message = "WeatherStation plugin returned null."
+  unit_test(
+    "error",
+    .cols = "message"
   )
-  unit_test("error",
-    message = NA
+  unit_test(
+    "error",
+    .cols = "message",
+    message = "Some error message"
   )
 })
 
-# Geofence ===========
+# Geofence ==========
 test_that("geofence", {
-  unit_test("geofence",
-    center = paste0(
-      "ed1007174d0668bb262d702652f3b3f81d6be2d6e08db967810f8d128a0042014cc8",
-      "e04792d8cdfe51da2158fd3efbedaf23fc02da9e5fea4c896ecb81c81672bf"
-    ),
-    dwell = 123456,
+  .cols = c("center", "dwell", "name", "radius", "state")
+
+  unit_test(
+    "geofence",
+    .cols = .cols
+  )
+
+  unit_test(
+    "geofence",
+    .cols = .cols,
+    center = 50.12345678901234,
+    dwell = 100,
     name = "Home",
-    radius = 50,
-    state = "ENTER"
-  )
-  unit_test("geofence",
-    center = NA,
-    dwell = NA,
-    name = NA,
-    radius = NA,
-    state = NA
+    radius = 100,
+    state = "inside"
   )
 })
 
-# Keyboard ===========
+# Gyroscope ============
+test_that("gyroscope",{
+  .cols = c("x", "y", "z")
+
+  unit_test(
+    "gyroscope",
+    .cols = .cols
+  )
+
+  unit_test(
+    "gyroscope",
+    .cols = .cols,
+    x = 0.1,
+    y = 0.2,
+    z = 0.3
+  )
+})
+
+# Heartbeat ===========
+test_that("hearbeat", {
+  col_names <- c("period", "device_type", "device_role_name")
+  new_names <- c(
+    device_type = "deviceType",
+    device_role_name = "deviceRoleName"
+  )
+
+  unit_test(
+    "heartbeat",
+    .cols = col_names
+  )
+
+  unit_test(
+    "heartbeat",
+    .cols = col_names,
+    period = 5,
+    device_type = "Smartphone",
+    device_role_name = "Masterphone"
+  )
+
+  unit_test(
+    "heartbeat",
+    .cols = col_names,
+    new_names = new_names,
+    period = 5,
+    deviceType = "Smartphone",
+    deviceRoleName = "Masterphone"
+  )
+})
+
+# Keyboard ============
 test_that("keyboard", {
-  expect_warning(
-    keyboard_fun(data.frame()),
-    "Function for implementing keyboard data currently not implemented."
-  )
-  expect_warning(
-    which_sensor(data.frame(), "keyboard"),
-    "Function for implementing keyboard data currently not implemented."
-  )
+  data <- tibble()
+  class(data) <- c("keyboard", class(data))
+  expect_warning({
+    res <- unpack_sensor_data(data)
+  })
+  expect_null(res)
 })
 
-# Light ===========
+# Light ========
 test_that("light", {
-  unit_test("light",
-    mean_lux = 110,
-    std_lux = 5,
-    min_lux = 0,
-    max_lux = 200
+  .cols <- c("mean_lux", "std_lux", "min_lux", "max_lux")
+  new_names <- c(
+    mean_lux = "meanLux",
+    std_lux = "stdLux",
+    min_lux = "minLux",
+    max_lux = "maxLux"
   )
-  unit_test("light",
-    mean_lux = NA,
-    std_lux = NA,
-    min_lux = NA,
-    max_lux = NA
+
+  unit_test(
+    "light",
+    .cols = .cols,
+    end_time = NA
+  )
+  unit_test(
+    "light",
+    .cols = .cols,
+    end_time = "2021-11-14 16:40:05.123456",
+    mean_lux = 50,
+    std_lux = 10,
+    min_lux = 40,
+    max_lux = 60
+  )
+  unit_test(
+    "light",
+    .cols = .cols,
+    new_names = new_names,
+    end_time = "2021-11-14 16:40:05.123456",
+    meanLux = 50,
+    stdLux = 10,
+    minLux = 40,
+    maxLux = 60
   )
 })
 
-# Location ===========
+# Location ===============
 test_that("location", {
-  unit_test("location",
-    latitude = paste0(
-      "69daf931cc38118ce450d5bfd9437324d1ad9b463e22d97a3ec5338c5de1f3a3a5",
-      "bfc163eabdc8b0c99320b0c6fbc6ca4be89dac7db9d1f1d86fb1776534dddc89"
-    ),
-    longitude = paste0(
-      "1704226c422d7182cc960e6630b5f69a2c7ce8de2e673574fc7fb89fbab4e2c2d",
-      "848aa30920abb2396de254666213f087f3c929da0b57b7257a58dc166b1ef1db1"
-    ),
-    altitude = 4.123456789012345,
-    accuracy = 8.123456789012354,
-    speed = 5.123456879012345,
-    speed_accuracy = 0,
-    heading = 123.456789012354567
+  .cols = c(
+    "latitude", "longitude", "altitude", "accuracy", "vertical_accuracy", "speed",
+    "speed_accuracy", "heading", "heading_accuracy", "is_mock"
   )
-  unit_test("location",
-    latitude = NA,
-    longitude = NA,
-    altitude = NA,
-    accuracy = NA,
-    speed = NA,
-    speed_accuracy = NA,
-    heading = NA
+  new_names <- c(
+    vertical_accuracy = "verticalAccuracy",
+    speed_accuracy = "speedAccuracy",
+    heading_accuracy = "headingAccuracy",
+    is_mock = "isMock"
+  )
+
+  unit_test(
+    "location",
+    .cols = .cols
+  )
+
+  unit_test(
+    "location",
+    .cols = .cols,
+    latitude = 50.12345678901234,
+    longitude = 4.12345678901234,
+    altitude = 100,
+    accuracy = 10,
+    vertical_accuracy = 5,
+    speed = 10,
+    speed_accuracy = 5,
+    heading = 90,
+    heading_accuracy = 5,
+    is_mock = FALSE
+  )
+
+  unit_test(
+    "location",
+    .cols = .cols,
+    latitude = 50.12345678901234,
+    longitude = 4.12345678901234,
+    altitude = 100,
+    accuracy = 10,
+    verticalAccuracy = 5,
+    speed = 10,
+    speedAccuracy = 5,
+    heading = 90,
+    headingAccuracy = 5,
+    isMock = FALSE,
+    new_names = new_names
   )
 })
 
-# Memory  ===========
+# Memory ========
 test_that("memory", {
-  unit_test("memory",
-    free_physical_memory = 12345678,
-    free_virtual_memory = 123456789
+  .cols <- c("free_physical_memory", "free_virtual_memory")
+  new_names <- c(
+    free_physical_memory = "freePhysicalMemory",
+    free_virtual_memory = "freeVirtualMemory"
   )
-  unit_test("memory",
-    free_physical_memory = NA,
-    free_virtual_memory = NA
+
+  unit_test(
+    "memory",
+    .cols = .cols
+  )
+  unit_test(
+    "memory",
+    .cols = .cols,
+    free_physical_memory = 100,
+    free_virtual_memory = 200
+  )
+  unit_test(
+    "memory",
+    .cols = .cols,
+    new_names = new_names,
+    freePhysicalMemory = 100,
+    freeVirtualMemory = 200
   )
 })
 
-# Mobility ===========
-test_that("mobility", {
-  unit_test("mobility",
-    number_of_places = 1,
-    location_variance = 0,
-    entropy = 0,
-    normalized_entropy = 0,
-    home_stay = -1,
-    distance_travelled = 0
-  )
-  unit_test("mobility",
-    number_of_places = NA,
-    location_variance = NA,
-    entropy = NA,
-    normalized_entropy = NA,
-    home_stay = NA,
-    distance_travelled = NA
-  )
-})
-
-# Noise ===========
+# Noise ========
 test_that("noise", {
-  unit_test("noise",
-    mean_decibel = 50.123456789,
-    std_decibel = 10.123456789,
-    min_decibel = 5.123456789,
-    max_decibel = 80.123456789
+  .cols <- c("mean_decibel", "std_decibel", "min_decibel", "max_decibel")
+  new_names <- c(
+    mean_decibel = "meanDecibel",
+    std_decibel = "stdDecibel",
+    min_decibel = "minDecibel",
+    max_decibel = "maxDecibel"
   )
-  unit_test("noise",
-    mean_decibel = NA,
-    std_decibel = NA,
-    min_decibel = NA,
-    max_decibel = NA
+
+  unit_test(
+    "noise",
+    .cols = .cols,
+    end_time = NA
+  )
+  unit_test(
+    "noise",
+    .cols = .cols,
+    end_time = "2021-11-14 16:40:05.123456",
+    mean_decibel = 50,
+    std_decibel = 10,
+    min_decibel = 40,
+    max_decibel = 60
+  )
+  unit_test(
+    "noise",
+    .cols = .cols,
+    end_time = "2021-11-14 16:40:05.123456",
+    new_names = new_names,
+    meanDecibel = 50,
+    stdDecibel = 10,
+    minDecibel = 40,
+    maxDecibel = 60
   )
 })
 
-# Pedometer ===========
+# Pedometer ========
 test_that("pedometer", {
-  unit_test("pedometer",
-    step_count = 12345
+  unit_test(
+    "pedometer",
+    .cols = "step_count"
   )
-  unit_test("pedometer",
-    step_count = NA
+  unit_test(
+    "pedometer",
+    .cols = "step_count",
+    step_count = 1
+  )
+  unit_test(
+    "pedometer",
+    .cols = "step_count",
+    new_names = c(step_count = "stepCount"),
+    stepCount = 1
   )
 })
 
-# Phone log ===========
-test_that("phone_log", {
-  dat <- common_test(
-    "phone_log",
-    list(
-      body = list(
-        id = "12345a",
-        start_time = "2021-11-14T16:40:01.123456Z",
-        phone_log = list(
-          list(
-            call_type = "incoming",
-            datetime = "2021-05-10 10:00:00",
-            duration = 60,
-            formatted_number = "+32 1234 5678",
-            name = "test subject",
-            number = "+3212345678"
-          ),
-          list(
-            call_type = "outgoing",
-            datetime = "2021-05-10 10:01:00",
-            duration = 120.50,
-            formatted_number = "+32 1234 5678",
-            name = "test subject",
-            number = "+3212345678"
-          )
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345b",
-        start_time = "2021-11-14T16:40:01.123456Z",
-        phone_log = list(
-          list(
-            call_type = "incoming",
-            timestamp = "2021-05-10 10:00:00",
-            duration = 60,
-            formatted_number = "+32 1234 5678",
-            name = "test subject",
-            number = "+3212345678"
-          )
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345c",
-        start_time = "2021-11-14T16:40:01.123456Z",
-        phone_log = list()
-      )
-    )
-  )
-  res <- phone_log_fun(dat)
-  res_which <- which_sensor(dat, "phone_log")
-  true <- data.frame(
-    measurement_id = c("12345a_1", "12345a_2", "12345b_1", "12345c_1"),
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:00",
-    timezone = "CET",
-    call_type = c("incoming", "outgoing", "incoming", NA),
-    datetime = c("2021-05-10 10:00:00", "2021-05-10 10:01:00", "2021-05-10 10:00:00", NA),
-    duration = c(60, 120.50, 60, NA),
-    formatted_number = c("+32 1234 5678", "+32 1234 5678", "+32 1234 5678", NA),
-    name = c("test subject", "test subject", "test subject", NA),
-    number = c("+3212345678", "+3212345678", "+3212345678", NA)
-  )
-
-  expect_equal(res, res_which)
-  expect_equal(res, true)
-  expect_equal(res_which, true)
-})
-
-
-# Screen ===========
+# Screen ========
 test_that("screen", {
-  unit_test("screen",
-    screen_event = "SCREEN_OFF"
+  unit_test(
+    "screen",
+    .cols = "screen_event"
   )
-  unit_test("screen",
-    screen_event = NA
+  unit_test(
+    "screen",
+    .cols = "screen_event",
+    screen_event = "SCREEN_ON"
   )
 })
 
-# Text message ===========
-test_that("text_message", {
-  dat <- common_test(
-    "text_message",
-    list(
-      body = list(
-        id = "12345a",
-        start_time = "2021-11-14T16:40:01.123456Z",
-        text_message = list(
-          list(
-            address = "123",
-            body = "abc",
-            date = "2021-11-13",
-            date_sent = "2021-11-13T13:00:00.123456T",
-            is_read = TRUE,
-            kind = "outgoing",
-            size = 12345,
-            state = "sent"
-          ),
-          list(
-            address = "456",
-            body = "def",
-            date = "2021-11-12",
-            date_sent = "2021-11-12T14:00:00.123456T",
-            is_read = FALSE,
-            kind = "incoming",
-            size = 67890,
-            state = "received"
-          )
-        )
-      )
-    ),
-    list(
-      body = list(
-        id = "12345b",
-        start_time = "2021-11-14T16:40:01.123456Z",
-        text_message = list()
-      )
-    )
+# Timezone ========
+test_that("timezone", {
+  unit_test(
+    "timezone",
+    .cols = "timezone"
   )
-  res <- text_message_fun(dat)
-  res_which <- which_sensor(dat, "text_message")
-  true <- data.frame(
-    measurement_id = c("12345a_1", "12345a_2", "12345b_1"),
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:00",
-    timezone = "CET",
-    address = c("123", "456", NA),
-    body = c("abc", "def", NA),
-    text_date = c("2021-11-13", "2021-11-12", NA),
-    date_sent = c("2021-11-13T13:00:00.123456T", "2021-11-12T14:00:00.123456T", NA),
-    is_read = c(TRUE, FALSE, NA),
-    kind = c("outgoing", "incoming", NA),
-    size = c(12345, 67890, NA),
-    state = c("sent", "received", NA)
+  unit_test(
+    "timezone",
+    .cols = "timezone",
+    timezone = "Europe/Brussels"
   )
-
-  expect_equal(res, res_which)
-  expect_equal(res, true)
-  expect_equal(res_which, true)
 })
 
-# Weather ===========
+# Weather ===============
 test_that("weather", {
-  unit_test("weather",
-    country = "BE",
-    area_name = "Arrondissement Leuven",
-    weather_main = "Clouds",
-    weather_description = "broken clouds",
-    sunrise = "2021-11-14T08:00:00.000",
-    sunset = "2021-11-14T19:00:00.000",
-    latitude = 50.1234,
-    longitude = 4.1234,
-    pressure = 1020,
-    wind_speed = 5.75,
-    wind_degree = 140,
-    humidity = 85,
-    cloudiness = 77,
-    rain_last_hour = NA,
-    rain_last_3hours = NA,
-    snow_last_hour = NA,
-    snow_last_3hours = NA,
-    temperature = 13.123456789012345,
-    temp_min = 12.123456789012345,
-    temp_max = 14.123456789012345
+  col_names <- c(
+    "country", "area_name", "weather_main", "weather_description", "sunrise", "sunset",
+    "latitude", "longitude", "pressure", "wind_speed", "wind_degree", "humidity", "cloudiness",
+    "rain_last_hour", "rain_last_3hours", "snow_last_hour", "snow_last_3hours", "temperature",
+    "temp_min", "temp_max"
   )
-  unit_test("weather",
-    country = NA,
-    area_name = NA,
-    weather_main = NA,
-    weather_description = NA,
-    sunrise = NA,
-    sunset = NA,
-    latitude = NA,
-    longitude = NA,
-    pressure = NA,
-    wind_speed = NA,
-    wind_degree = NA,
-    humidity = NA,
-    cloudiness = NA,
-    rain_last_hour = NA,
-    rain_last_3hours = NA,
-    snow_last_hour = NA,
-    snow_last_3hours = NA,
-    temperature = NA,
-    temp_min = NA,
-    temp_max = NA
+
+  new_names <- c(
+    area_name = "areaName",
+    weather_main = "weatherMain",
+    weather_description = "weatherDescription",
+    wind_speed = "windSpeed",
+    wind_degree = "windDegree",
+    rain_last_hour = "rainLastHour",
+    rain_last_3hours = "rainLast3Hours",
+    snow_last_hour = "snowLastHour",
+    snow_last_3hours = "snowLast3Hours",
+    temp_min = "tempMin",
+    temp_max = "tempMax"
+  )
+
+  unit_test(
+    "weather",
+    areaName = "Aarschot",
+    weatherMain = "Clouds",
+    weatherDescription = "scattered clouds",
+    windSpeed = 5,
+    windDegree = 180,
+    rainLastHour = 0,
+    rainLast3Hours = 0,
+    snowLastHour = 0,
+    snowLast3Hours = 0,
+    tempMin = 5,
+    tempMax = 10,
+    .cols = col_names,
+    new_names = new_names
+  )
+
+  unit_test(
+    "weather",
+    .cols = col_names,
+    country = "BE",
+    area_name = "Aarschot",
+    weather_main = "Clouds",
+    weather_description = "scattered clouds",
+    sunrise = "2021-11-14 07:00:00",
+    sunset = "2021-11-14 17:00:00",
+    latitude = 50.12345678901234,
+    longitude = 4.12345678901234,
+    pressure = 1000,
+    wind_speed = 5,
+    wind_degree = 180,
+    humidity = 80,
+    cloudiness = 20,
+    rain_last_hour = 0,
+    rain_last_3hours = 0,
+    snow_last_hour = 0,
+    snow_last_3hours = 0,
+    temperature = 10,
+    temp_min = 5,
+    temp_max = 15
+  )
+  unit_test(
+    "weather",
+    .cols = col_names
   )
 })
 
-# Wifi ===========
+# Wifi ============
 test_that("wifi", {
-  unit_test("wifi",
-    ssid = "318e527d52bb2f775c79d84a5c888614ca772b30",
-    bssid = "e412411ff32dcf879275b33882643ee2d328a56a",
-    ip = "10.11.31.06"
+  col_names <- c("ssid", "bssid", "ip")
+
+  unit_test(
+    "wifi",
+    .cols = col_names,
+    ssid = "MyWifi",
+    bssid = "00:11:22:33:44:55",
+    ip = "192.168.0.1"
   )
-  unit_test("wifi",
-    ssid = NA,
-    bssid = NA,
-    ip = NA
+  unit_test(
+    "wifi",
+    .cols = col_names
   )
 })

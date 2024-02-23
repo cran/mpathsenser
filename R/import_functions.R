@@ -1,47 +1,32 @@
-# First, try to simply add the data to the table If the measurement already exists,
-# skip that measurement
-save2db <- function(db, name, data) {
-  insert_cols <- paste0("`", colnames(data), "`", collapse = ", ")
-  cols <- paste0(":", colnames(data), collapse = ", ")
-  res <- DBI::dbSendStatement(
-    conn = db,
-    statement = paste0("INSERT OR REPLACE INTO ", name, " (", insert_cols, ") VALUES (", cols, ")"),
-    params = as.list(data)
-  )
-  DBI::dbClearResult(res)
+rand <- function(n, chars = TRUE, numbers = TRUE, uppercase = FALSE) {
+  if (!chars && !numbers) {
+    abort("You must select either letters, numbers, or both.")
+  }
+
+  data <- NULL
+  if (chars) {
+    if (uppercase) {
+      data <- c(data, LETTERS[1:6])
+    } else {
+      data <- c(data, letters[1:6])
+    }
+  }
+
+  if (numbers) {
+    data <- c(data, 0:9)
+  }
+
+  paste0(sample(data, n, TRUE), collapse = "")
 }
 
-# This function is needed because calling the function on the fly from the sensor name
-# (i.e. dynamic evaluation) poses a problem from the globals package, which would then not
-# include these import functions in the futures.
-which_sensor <- function(data, sensor) {
-  switch(tolower(sensor),
-    accelerometer = accelerometer_fun(data),
-    activity = activity_fun(data),
-    air_quality = air_quality_fun(data),
-    app_usage = app_usage_fun(data),
-    apps = apps_fun(data),
-    battery = battery_fun(data),
-    bluetooth = bluetooth_fun(data),
-    calendar = calendar_fun(data),
-    connectivity = connectivity_fun(data),
-    device = device_fun(data),
-    error = error_fun(data),
-    geofence = geofence_fun(data),
-    gyroscope = gyroscope_fun(data),
-    keyboard = keyboard_fun(data),
-    light = light_fun(data),
-    location = location_fun(data),
-    memory = memory_fun(data),
-    mobility = mobility_fun(data),
-    noise = noise_fun(data),
-    phone_log = phone_log_fun(data),
-    pedometer = pedometer_fun(data),
-    screen = screen_fun(data),
-    text_message = text_message_fun(data),
-    weather = weather_fun(data),
-    wifi = wifi_fun(data)
-  )
+gen_id <- function(uppercase = FALSE) {
+  res <- paste(rand(8), rand(4), rand(4), rand(4), rand(12), sep = "-")
+
+  if (uppercase) {
+    res <- toupper(res)
+  }
+
+  res
 }
 
 # Make a data frame, handling missing columns, filling with NA
@@ -78,85 +63,142 @@ safe_tibble <- function(...) {
   x
 }
 
-default_fun <- function(data) {
-  data$body <- lapply(data$body, function(x) x$body)
-  data <- dplyr::bind_cols(data, bind_rows(data$body))
-  data$body <- NULL
+
+#' Unpack raw sensor data
+#'
+#' This function takes raw sensor data coming from [import()] and unpacks it into tidy data frames
+#' so that it can be written to the database. Note that this function is internal and should not
+#' be used for other purposes.
+#'
+#' @param data A data frame containing the raw sensor data.
+#' @inheritParams rlang::args_dots_empty
+#'
+#' @return A data frame with the sensor data unpacked.
+#' @keywords internal
+#'
+#' @examples
+#' x <- tibble::tibble(
+#'   study_id = "test-study",
+#'   participant_id = "12345",
+#'   data_format = "cams 1.0.0",
+#'   start_time = "2021-11-14 16:40:00.123456",
+#'   end_time = NULL,
+#'   sensor = "Activity",
+#'   data = list(list(
+#'     confidence = 80,
+#'     type = "WALKING"
+#'   ))
+#' )
+#' class(x) <- c("activity", class(x))
+#' mpathsenser:::unpack_sensor_data(x)
+unpack_sensor_data <- function(data, ...){
+  rlang::check_dots_empty()
+  UseMethod("unpack_sensor_data")
+}
+
+#' @export
+#' @keywords internal
+unpack_sensor_data.default <- function(data, sensor, ...) {
+  data <- tidyr::unnest_wider(data, "data")
+  data$data <- NULL
+
+  # Add a measurement_id column if it doesn't exist
+  if (!any(c("measurement_id", "id") %in% colnames(data))) {
+    gen_id <- Vectorize(gen_id)
+    data <- tibble(
+      measurement_id = gen_id(seq_len(nrow(data))),
+      data
+    )
+  }
+
+  # Remap column names
+  class(data) <- c(sensor, class(data))
+  data <- alias_column_names(data)
 
   data
 }
 
-accelerometer_fun <- function(data) {
-  # Determine whether this is a continuous accelerometer or periodic
-  if (!is.null(data$body[[1]]$body$data)) {
-    data <- periodic_accelerometer_fun(data)
-  } else {
-    data <- default_fun(data)
-  }
+#' @export
+#' @keywords internal
+unpack_sensor_data.accelerometer <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "accelerometer", ...)
 
-  # Put into right data format
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$timestamp, 1, 10),
-    time = substr(data$timestamp, 12, 23),
-    timezone = data$timezone,
-    x = data$x,
-    y = data$y,
-    z = data$z,
-    x_mean = data$xm,
-    y_mean = data$ym,
-    z_mean = data$zm,
-    x_mean_sq = data$xms,
-    y_mean_sq = data$yms,
-    z_mean_sq = data$zms,
-    n = data$n
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
+    end_time = data$end_time,
+    n = data$n,
+    x_mean = data$x_mean,
+    y_mean = data$y_mean,
+    z_mean = data$z_mean,
+    x_median = data$x_median,
+    y_median = data$y_median,
+    z_median = data$z_median,
+    x_std = data$x_std,
+    y_std = data$y_std,
+    z_std = data$z_std,
+    x_aad = data$x_aad,
+    y_aad = data$y_aad,
+    z_aad = data$z_aad,
+    x_min = data$x_min,
+    y_min = data$y_min,
+    z_min = data$z_min,
+    x_max = data$x_max,
+    y_max = data$y_max,
+    z_max = data$z_max,
+    x_max_min_diff = data$x_max_min_diff,
+    y_max_min_diff = data$y_max_min_diff,
+    z_max_min_diff = data$z_max_min_diff,
+    x_mad = data$x_mad,
+    y_mad = data$y_mad,
+    z_mad = data$z_mad,
+    x_iqr = data$x_iqr,
+    y_iqr = data$y_iqr,
+    z_iqr = data$z_iqr,
+    x_neg_n = data$x_neg_n,
+    y_neg_n = data$y_neg_n,
+    z_neg_n = data$z_neg_n,
+    x_pos_n = data$x_pos_n,
+    y_pos_n = data$y_pos_n,
+    z_pos_n = data$z_pos_n,
+    x_above_mean = data$x_above_mean,
+    y_above_mean = data$y_above_mean,
+    z_above_mean = data$z_above_mean,
+    x_energy = data$x_energy,
+    y_energy = data$y_energy,
+    z_energy = data$z_energy,
+    avg_res_acc = data$avg_res_acc,
+    sma = data$sma
   )
 }
 
-# Periodic accelerometer is archived with the introduction of on-phone accelerometer binning
-periodic_accelerometer_fun <- function(data) {
-  data$id <- vapply(data$body, function(x) x$body$id, character(1), USE.NAMES = FALSE)
-  data$body <- lapply(data$body, function(x) x$body$data)
-
-  data <- unnest(data, "body", keep_empty = TRUE)
-
-  data$timestamp <- lapply(data$body, function(x) x$timestamp)
-  data$x <- lapply(data$body, function(x) x$x)
-  data$y <- lapply(data$body, function(x) x$y)
-  data$z <- lapply(data$body, function(x) x$z)
-  data$body <- NULL
-  data <- unnest(data, "x":"z", keep_empty = TRUE)
-
-  # TODO: Consider unique ID constraint Temporary fix
-  ids <- stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)
-  data$id <- paste0(data$id, "_", ids)
-  data
-}
-
-activity_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.activity <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "activity", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     confidence = data$confidence,
     type = data$type
   )
 }
 
-air_quality_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.airquality <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "airquality", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     air_quality_index = data$air_quality_index,
     air_quality_level = data$air_quality_level,
     source = data$source,
@@ -166,95 +208,94 @@ air_quality_fun <- function(data) {
   )
 }
 
-app_usage_fun <- function(data) {
-  data$body <- lapply(data$body, function(x) x$body)
-  data$body <- suppressWarnings(lapply(data$body, bind_rows))
-  data <- unnest(data, body, keep_empty = TRUE)
+#' @export
+#' @keywords internal
+unpack_sensor_data.appusage <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "appusage", ...)
 
-  if ("usage" %in% colnames(data)) {
-    data$app <- names(data$usage)
-    data$usage <- suppressWarnings(as.numeric(as.character(data$usage)))
-  } else {
-    data$app <- NA
-    data$usage <- NA
+  if (!is.null(data$usage) && !is.na(data$usage)) {
+    data$usage <- lapply(data$usage, bind_rows)
+    data <- unnest(data, "usage", keep_empty = TRUE)
   }
 
-  # TODO: Consider unique ID constraint Temporary fix
-  ids <- stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)
-  data$id <- paste0(data$id, "_", ids)
+  # If `startDate` and `endDate` columns exist, remove `start` and `end` columns as these are
+  # duplicate of start_time and end_time.
+  # TODO: add synonyms of these columns if new ones are added. `alias_column_names()` does not solve
+  # this problem as it will throw an error that there are duplicate names (which is true).
+  if (any(c("startDate", "endDate", "start_date", "end_date") %in% colnames(data))) {
+    data <- select(data, -any_of(c("start", "end")))
+  }
 
+  # Remap column names
+  class(data) <- c("appusage", class(data))
+  data <- alias_column_names(data)
+
+  # TODO: Consider unique ID constraint Temporary fix
+  ids <- stats::ave(numeric(nrow(data)) + 1, data$measurement_id, FUN = seq_along)
+  data$measurement_id <- paste0(data$measurement_id, "_", ids)
+
+  if ("last_foreground" %in% colnames(data)) {
+    data$last_foreground[grepl("1970-01", data$last_foreground)] <- NA
+  }
+
+  # In this case, the end_time of the measurement is not relevant and already included in the data.
+  # There is an end_date in the data, but this is already incorporated in the more precise `end`
+  # column.
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
+    end_time = data$end_time,
     start = data$start,
     end = data$end,
     usage = data$usage,
-    app = data$app
+    app = data$app,
+    package_name = data$package_name,
+    last_foreground = data$last_foreground
   )
 }
 
-# TODO: Simplify
-apps_fun <- function(data) {
-  data$body <- lapply(data$body, function(x) x$body)
-  data$body <- lapply(data$body, function(x) {
-    tibble::tibble(
-      id = x$id,
-      timestamp = x$timestamp,
-      apps = list(x$installed_apps)
-    )
-  })
-  data <- unnest(data, "body", keep_empty = TRUE)
-  data <- unnest(data, "apps", keep_empty = TRUE)
-  data <- unnest(data, "apps", keep_empty = TRUE)
-
-  # TODO: Consider unique ID constraint Temporary fix
-  ids <- stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)
-  data$id <- paste0(data$id, "_", ids)
+#' @export
+#' @keywords internal
+unpack_sensor_data.battery <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "battery", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
-    app = data$apps
-  )
-}
-
-battery_fun <- function(data) {
-  data <- default_fun(data)
-
-  safe_data_frame(
-    measurement_id = data$id,
-    participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     battery_level = data$battery_level,
     battery_status = data$battery_status
   )
 }
 
-bluetooth_fun <- function(data) {
-  data$id <- vapply(data$body, function(x) x$body$id, character(1))
-  data$timestamp <- sapply(data$body, function(x) x$body$timestamp)
-  data$body <- lapply(data$body, function(x) x$body$scan_result)
-  data$body <- lapply(data$body, bind_rows)
-  data <- unnest(data, body, keep_empty = TRUE)
+#' @export
+#' @keywords internal
+unpack_sensor_data.bluetooth <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "bluetooth", ...)
+
+  if ("scan_result" %in% colnames(data) && !all(is.na(data$scan_result))) {
+    data$scan_result <- lapply(data$scan_result, bind_rows)
+    data <- unnest(data, "scan_result", keep_empty = TRUE)
+
+    # Remap column names again, now with unnested data
+    class(data) <- c("bluetooth", class(data))
+    data <- alias_column_names(data)
+  }
 
   # TODO: Consider unique ID constraint Temporary fix
-  ids <- stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)
-  data$id <- paste0(data$id, "_", ids)
+  ids <- stats::ave(numeric(nrow(data)) + 1, data$measurement_id, FUN = seq_along)
+  data$measurement_id <- paste0(data$measurement_id, "_", ids)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
+    start_scan = data$start_scan,
+    end_scan = data$end_scan,
     advertisement_name = data$advertisement_name,
     bluetooth_device_id = data$bluetooth_device_id,
     bluetooth_device_name = data$bluetooth_device_name,
@@ -265,129 +306,94 @@ bluetooth_fun <- function(data) {
   )
 }
 
-# TODO: Check attendees TODO: Check if multiple entries (from different calendars?) are possible
-# Currently, multiple entries are already possible but it's not clear why they are
-# wrapped in another list as well.
-calendar_fun <- function(data) {
-  data$id <- vapply(data$body, function(x) x$body$id, character(1))
-  data$body <- lapply(data$body, function(x) {
-    x$body$calendar_events
-  })
-
-  if (!is.null(data$body[[1]])) {
-    data$body <- lapply(data$body, function(x) {
-      lapply(x, function(y) {
-        safe_tibble(
-          event_id = y$event_id,
-          calendar_id = y$calendar_id,
-          title = y$title,
-          description = y$description,
-          start = y$start,
-          end = y$end,
-          all_day = y$all_day,
-          location = y$location,
-          attendees = list(y$attendees)
-        )
-      })
-    })
-  }
-
-
-  data$body <- lapply(data$body, bind_rows)
-  data <- unnest(data, body, keep_empty = TRUE)
-
-  # Collapse attendees list
-  if (any("attendees" == colnames(data))) {
-    data$attendees <- sapply(data$attendees, function(x) {
-      if (!is.null(x)) {
-        x <- paste0(x, collapse = ", ")
-        if (x == "NA") {
-          x <- NA_character_
-        }
-        return(x)
-      } else {
-        NA_character_
-      }
-    })
-  }
-
-  # TODO: Consider unique ID constraint Temporary fix
-  ids <-
-    stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)
-  data$id <- paste0(data$id, "_", ids)
+#' @export
+#' @keywords internal
+unpack_sensor_data.connectivity <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "connectivity", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
-    event_id = data$event_id,
-    calendar_id = data$calendar_id,
-    title = data$title,
-    description = data$description,
-    start = data$start,
-    end = data$end,
-    all_day = data$all_day,
-    location = data$location,
-    attendees = data$attendees
-  )
-}
-
-connectivity_fun <- function(data) {
-  data <- default_fun(data)
-
-  safe_data_frame(
-    measurement_id = data$id,
-    participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     connectivity_status = data$connectivity_status
   )
 }
 
-device_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.device <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "device", ...)
+
+  # Try to add sdk and OS version info
+  if ("device_data" %in% colnames(data)) {
+    android_osv <- purrr::map_chr(
+      data$device_data,
+      \(x) purrr::pluck(x, "version", "release")
+    )
+    android_sdk <- purrr::map_chr(
+      data$device_data,
+      \(x) purrr::pluck(x, "version", "sdkInt")
+    )
+    ios_osv <- purrr::map_chr(
+      data$device_data,
+      \(x) purrr::pluck(x, "systemVersion")
+    )
+    ios_sdk <- purrr::map_chr(
+      data$device_data,
+      \(x) purrr::pluck(x, "utsname", "release")
+    )
+
+    # Use iOS values if Android values are missing
+    # If the other turns out to be missing as well, it doesn't matter which one we use
+    osv <- if (all(is.na(android_osv))) ios_osv else android_osv
+    sdk <- if (all(is.na(android_sdk))) ios_sdk else android_sdk
+
+    data$operating_system_version <- osv
+    data$sdk <- sdk
+  }
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
-    platform = data$platform,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     device_id = data$device_id,
     hardware = data$hardware,
     device_name = data$device_name,
     device_manufacturer = data$device_manufacturer,
     device_model = data$device_model,
-    operating_system = data$operating_system
+    operating_system = data$operating_system,
+    platform = data$platform,
+    operating_system_version = data$operating_system_version,
+    sdk = data$sdk
   )
 }
 
-error_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.error <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "error", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     message = data$message
   )
 }
 
-geofence_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.geofence <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "geofence", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     center = data$center,
     dwell = data$dwell,
     name = data$name,
@@ -396,26 +402,56 @@ geofence_fun <- function(data) {
   )
 }
 
-# This function is now obsolete as it does exactly the same as accelerometer_fun
-# However, I'm keeping it here for the sake of clarity and backwards compatibility
-gyroscope_fun <- function(data) {
-  accelerometer_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.gyroscope <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "gyroscope", ...)
+
+  safe_data_frame(
+    measurement_id = data$measurement_id,
+    participant_id = data$participant_id,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
+    x = data$x,
+    y = data$y,
+    z = data$z
+  )
 }
 
-keyboard_fun <- function(data) {
+#' @export
+#' @keywords internal
+unpack_sensor_data.heartbeat <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "heartbeat", ...)
+
+  safe_data_frame(
+    measurement_id = data$measurement_id,
+    participant_id = data$participant_id,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
+    period = data$period,
+    device_type = data$device_type,
+    device_role_name = data$device_role_name
+  )
+}
+
+#' @export
+#' @keywords internal
+unpack_sensor_data.keyboard <- function(data, ...) {
   warn("Function for implementing keyboard data currently not implemented.")
   return(NULL)
 }
 
-light_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.light <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "light", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
+    end_time =  data$end_time,
     mean_lux = data$mean_lux,
     std_lux = data$std_lux,
     min_lux = data$min_lux,
@@ -423,67 +459,67 @@ light_fun <- function(data) {
   )
 }
 
-location_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.location <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "location", ...)
+
+  # If a column 'time' is already present in the data and it is not NA, use this instead of the
+  # sensor's start_time, as the timestamp from the location service is likely to be more accurate
+  if ("time" %in% colnames(data) && !all(is.na(data$time))) {
+    data$start_time <- data$time
+    data$time <- NULL
+  }
+
+  # Remap column names
+  class(data) <- c("location", class(data))
+  data <- alias_column_names(data)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     latitude = data$latitude,
     longitude = data$longitude,
     altitude = data$altitude,
     accuracy = data$accuracy,
+    vertical_accuracy = data$vertical_accuracy,
     speed = data$speed,
     speed_accuracy = data$speed_accuracy,
-    heading = data$heading
+    heading = data$heading,
+    heading_accuracy = data$heading_accuracy,
+    is_mock = data$is_mock
   )
 }
 
-memory_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.memory <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "memory", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     free_physical_memory = data$free_physical_memory,
     free_virtual_memory = data$free_virtual_memory
   )
 }
 
-# TODO: find out how this works
-mobility_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.noise <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "noise", ...)
+
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
-    number_of_places = data$number_of_places,
-    location_variance = data$location_variance,
-    entropy = data$entropy,
-    normalized_entropy = data$normalized_entropy,
-    home_stay = data$home_stay,
-    distance_travelled = data$distance_travelled
-  )
-}
-
-noise_fun <- function(data) {
-  data <- default_fun(data)
-
-  safe_data_frame(
-    measurement_id = data$id,
-    participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
+    end_time =  data$end_time,
     mean_decibel = data$mean_decibel,
     std_decibel = data$std_decibel,
     min_decibel = data$min_decibel,
@@ -491,105 +527,58 @@ noise_fun <- function(data) {
   )
 }
 
-phone_log_fun <- function(data) {
-  data$id <- vapply(data$body, function(x) x$body$id, character(1))
-
-  data$body <- lapply(data$body, function(x) x$body$phone_log)
-  data$body <- lapply(data$body, bind_rows)
-  data$body <- lapply(data$body, function(x) {
-    # Replace double timestamp name
-    if (nrow(x) > 0 & "timestamp" %in% colnames(x)) {
-      dplyr::rename(x, "datetime" = "timestamp")
-    } else {
-      x
-    }
-  })
-  data <- unnest(data, body, keep_empty = TRUE)
-
-  # TODO: Consider unique ID constraint Temporary fix
-  ids <- stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)
-  data$id <- paste0(data$id, "_", ids)
+#' @export
+#' @keywords internal
+unpack_sensor_data.pedometer <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "pedometer", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
-    call_type = data$call_type,
-    datetime = data$datetime,
-    duration = data$duration,
-    formatted_number = data$formatted_number,
-    name = data$name,
-    number = data$number
-  )
-}
-
-pedometer_fun <- function(data) {
-  data <- default_fun(data)
-
-  safe_data_frame(
-    measurement_id = data$id,
-    participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     step_count = data$step_count
   )
 }
 
-screen_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.screen <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "screen", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     screen_event = data$screen_event
   )
 }
 
-# TODO: Check if text_message can be unnested
-text_message_fun <- function(data) {
-  data$id <- vapply(data$body, function(x) x$body$id, character(1))
-  data$timestamp <- sapply(data$body, function(x) x$body$timestamp)
-  data$body <- lapply(data$body, function(x) x$body$text_message)
-  data$body <- lapply(data$body, bind_rows)
-  data <- unnest(data, body, keep_empty = TRUE)
-
-  # TODO: Consider unique ID constraint Temporary fix
-  ids <- stats::ave(numeric(nrow(data)) + 1, data$id, FUN = seq_along)
-  data$id <- paste0(data$id, "_", ids)
+#' @export
+#' @keywords internal
+unpack_sensor_data.timezone <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "timezone", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
-    address = data$address,
-    body = data$body,
-    text_date = data$date,
-    date_sent = data$date_sent,
-    is_read = data$is_read,
-    kind = data$kind,
-    size = data$size,
-    state = data$state
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
+    timezone = data$timezone
   )
 }
 
-# TODO: Check date, sunrise, and sunset time in UTC
-weather_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.weather <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "weather", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     country = data$country,
     area_name = data$area_name,
     weather_main = data$weather_main,
@@ -604,24 +593,25 @@ weather_fun <- function(data) {
     humidity = data$humidity,
     cloudiness = data$cloudiness,
     rain_last_hour = data$rain_last_hour,
-    rain_last_3hours = data$rain_last3_hours,
+    rain_last_3hours = data$rain_last_3hours,
     snow_last_hour = data$snow_last_hour,
-    snow_last_3hours = data$snow_last3_hours,
+    snow_last_3hours = data$snow_last_3hours,
     temperature = data$temperature,
     temp_min = data$temp_min,
     temp_max = data$temp_max
   )
 }
 
-wifi_fun <- function(data) {
-  data <- default_fun(data)
+#' @export
+#' @keywords internal
+unpack_sensor_data.wifi <- function(data, ...) {
+  data <- unpack_sensor_data.default(data, "wifi", ...)
 
   safe_data_frame(
-    measurement_id = data$id,
+    measurement_id = data$measurement_id,
     participant_id = data$participant_id,
-    date = substr(data$start_time, 1, 10),
-    time = substr(data$start_time, 12, 19),
-    timezone = data$timezone,
+    date = substr(data$time, 1, 10),
+    time = substr(data$time, 12, 23),
     ssid = data$ssid,
     bssid = data$bssid,
     ip = data$ip
