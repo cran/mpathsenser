@@ -91,7 +91,7 @@ safe_tibble <- function(...) {
 #' )
 #' class(x) <- c("activity", class(x))
 #' mpathsenser:::unpack_sensor_data(x)
-unpack_sensor_data <- function(data, ...){
+unpack_sensor_data <- function(data, ...) {
   rlang::check_dots_empty()
   UseMethod("unpack_sensor_data")
 }
@@ -213,7 +213,7 @@ unpack_sensor_data.airquality <- function(data, ...) {
 unpack_sensor_data.appusage <- function(data, ...) {
   data <- unpack_sensor_data.default(data, "appusage", ...)
 
-  if (!is.null(data$usage) && !is.na(data$usage)) {
+  if (!is.null(data$usage) && !all(is.na(data$usage))) {
     data$usage <- lapply(data$usage, bind_rows)
     data <- unnest(data, "usage", keep_empty = TRUE)
   }
@@ -327,21 +327,21 @@ unpack_sensor_data.device <- function(data, ...) {
 
   # Try to add sdk and OS version info
   if ("device_data" %in% colnames(data)) {
-    android_osv <- purrr::map_chr(
+    android_osv <- purrr::map_vec(
       data$device_data,
-      \(x) purrr::pluck(x, "version", "release")
+      \(x) purrr::pluck(x, "version", "release", .default = NA)
     )
-    android_sdk <- purrr::map_chr(
+    android_sdk <- purrr::map_vec(
       data$device_data,
-      \(x) purrr::pluck(x, "version", "sdkInt")
+      \(x) purrr::pluck(x, "version", "sdkInt", .default = NA)
     )
-    ios_osv <- purrr::map_chr(
+    ios_osv <- purrr::map_vec(
       data$device_data,
-      \(x) purrr::pluck(x, "systemVersion")
+      \(x) purrr::pluck(x, "systemVersion", .default = NA)
     )
-    ios_sdk <- purrr::map_chr(
+    ios_sdk <- purrr::map_vec(
       data$device_data,
-      \(x) purrr::pluck(x, "utsname", "release")
+      \(x) purrr::pluck(x, "utsname", "release", .default = NA)
     )
 
     # Use iOS values if Android values are missing
@@ -451,7 +451,7 @@ unpack_sensor_data.light <- function(data, ...) {
     participant_id = data$participant_id,
     date = substr(data$time, 1, 10),
     time = substr(data$time, 12, 23),
-    end_time =  data$end_time,
+    end_time = data$end_time,
     mean_lux = data$mean_lux,
     std_lux = data$std_lux,
     min_lux = data$min_lux,
@@ -462,14 +462,12 @@ unpack_sensor_data.light <- function(data, ...) {
 #' @export
 #' @keywords internal
 unpack_sensor_data.location <- function(data, ...) {
-  data <- unpack_sensor_data.default(data, "location", ...)
+  # If a column 'time' is already present in the data, remove it from the sensor data. Otherwise
+  # alias_column_names will throw an error for a duplicate column 'time' and the time column in the
+  # data is not in UTC, so `start_time` is preferred.
+  data$data <- lapply(data$data, \(x) x[setdiff(names(x), "time")])
 
-  # If a column 'time' is already present in the data and it is not NA, use this instead of the
-  # sensor's start_time, as the timestamp from the location service is likely to be more accurate
-  if ("time" %in% colnames(data) && !all(is.na(data$time))) {
-    data$start_time <- data$time
-    data$time <- NULL
-  }
+  data <- unpack_sensor_data.default(data, "location", ...)
 
   # Remap column names
   class(data) <- c("location", class(data))
@@ -519,7 +517,7 @@ unpack_sensor_data.noise <- function(data, ...) {
     participant_id = data$participant_id,
     date = substr(data$time, 1, 10),
     time = substr(data$time, 12, 23),
-    end_time =  data$end_time,
+    end_time = data$end_time,
     mean_decibel = data$mean_decibel,
     std_decibel = data$std_decibel,
     min_decibel = data$min_decibel,

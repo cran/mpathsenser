@@ -40,29 +40,37 @@ print(to_fix)
 
 fix_jsons(path = NULL, to_fix)
 
-## ----import data--------------------------------------------------------------
+## ----create db----------------------------------------------------------------
 # Create a new database
 db <- create_db(tempdir, "getstarted.db")
 
+## ----import data--------------------------------------------------------------
 # Import the data
 import(
   path = tempdir,
   db = db,
-  batch_size = 12
+  sensors = NULL, # All sensors
+  batch_size = 12,
+  recursive = TRUE
 )
 
-## ----fig.width=13, fig.height=8, fig.align='center', dpi=55-------------------
+## -----------------------------------------------------------------------------
 sensors <- c(
   "Accelerometer", "Activity", "AppUsage", "Bluetooth", "Calendar",
   "Connectivity", "Device", "Gyroscope", "InstalledApps", "Light",
   "Location", "Memory", "Pedometer", "Screen", "Weather", "Wifi"
 )
-coverage(
+cov <- coverage(
   db = db,
   participant_id = "2784",
   sensor = sensors,
   relative = FALSE
 )
+
+print(cov)
+
+## ----fig.width=13, fig.height=8, fig.align='center', dpi=55-------------------
+plot(cov)
 
 ## -----------------------------------------------------------------------------
 close_db(db)

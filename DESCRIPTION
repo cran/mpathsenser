@@ -1,6 +1,6 @@
 Package: mpathsenser
 Title: Process and Analyse Data from m-Path Sense
-Version: 1.2.2
+Version: 1.2.3
 Authors@R: c(
     person("Koen", "Niemeijer", , "koen.niemeijer@kuleuven.be", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-0816-534X")),
@@ -23,17 +23,19 @@ Depends: R (>= 4.0.0)
 Imports: DBI, dbplyr, dplyr, furrr, jsonlite, lifecycle, lubridate,
         purrr, rlang, RSQLite, stats, tibble, tidyr
 Suggests: cli, curl, ggplot2, httr, kableExtra, knitr, lintr,
-        progressr, rmarkdown, rvest, sodium, testthat (>= 3.0.0), vroom
+        progressr, rmarkdown, rvest, sodium, spelling, testthat (>=
+        3.0.0), vroom
 VignetteBuilder: knitr
 Config/Needs/website: tidyverse/tidytemplate
 Config/testthat/edition: 3
 Encoding: UTF-8
 RoxygenNote: 7.3.1
+Language: en-GB
 NeedsCompilation: no
-Packaged: 2024-02-22 23:25:29 UTC; u0134047
+Packaged: 2024-03-29 15:47:37 UTC; u0134047
 Author: Koen Niemeijer [aut, cre] (<https://orcid.org/0000-0002-0816-534X>),
   Kristof Meers [ctb] (<https://orcid.org/0000-0002-9610-7712>),
   KU Leuven [cph, fnd]
 Maintainer: Koen Niemeijer <koen.niemeijer@kuleuven.be>
 Repository: CRAN
-Date/Publication: 2024-02-23 10:00:02 UTC
+Date/Publication: 2024-03-29 16:00:02 UTC
