@@ -9,18 +9,24 @@ test_that("import", {
   db <- create_db(NULL, filename)
 
   # Import the data
-  expect_message(import(
-    path = path,
-    db = db,
-    recursive = FALSE
-  ), "All files were successfully written to the database.")
+  expect_message(
+    import(
+      path = path,
+      db = db,
+      recursive = FALSE
+    ),
+    "All files were successfully written to the database."
+  )
 
   # Test whether no new files need to be processed
-  expect_message(import(
-    path = path,
-    db = db,
-    recursive = FALSE
-  ), "No new files to process.")
+  expect_message(
+    import(
+      path = path,
+      db = db,
+      recursive = FALSE
+    ),
+    "No new files to process."
+  )
 
   # Test non-existing path
   expect_error(
@@ -45,8 +51,16 @@ test_that("import", {
     db = db2,
     recursive = TRUE # Includes broken files
   ))
-  expect_match(warnings_log, "Invalid JSON format in file broken\\/broken\\d\\.json", all = FALSE)
-  expect_match(warnings_log, "Some files could not be written to the database.", all = FALSE)
+  expect_match(
+    warnings_log,
+    "Invalid JSON format in file broken\\/broken\\d\\.json",
+    all = FALSE
+  )
+  expect_match(
+    warnings_log,
+    "Some files could not be written to the database.",
+    all = FALSE
+  )
   dbDisconnect(db2)
   file.remove(filename)
 })
@@ -161,7 +175,10 @@ test_that(".import_clean", {
   expect_equal(nrow(.import_clean(data, "accelerometer")), 2)
   # Interesting bug when using unlist in safe_extract: NULLs are implicitly dropped, so if only one
   # value is left, it is recycled in the rest of the data frame. Hence doing this test in two steps.
-  expect_equal(.import_clean(data, "accelerometer")$study_id, c(NA, "test-study"))
+  expect_equal(
+    .import_clean(data, "accelerometer")$study_id,
+    c(NA, "test-study")
+  )
   data[[2]][[1]]$study_id <- NULL
   expect_no_error(.import_clean(data, "accelerometer"))
   expect_equal(nrow(.import_clean(data, "accelerometer")), 2)
@@ -194,14 +211,18 @@ test_that(".import_clean_new", {
     )
   )
 
-  file_name <- "123_study_456_m_Path_sense_2021-11-14T14:01:00.000000.json"
+  file_name <- "123_study_456_m_Path_sense_2021-11-14_14:01:00.000000.json"
 
   true <- tibble(
     study_id = "study",
     participant_id = "456",
     data_format = "cams 1.0.0",
     start_time = as.character(
-      as.POSIXct(c(1.705944e+15, 1.705945e+15) / 1e6, tz = "UTC", origin = "1970-01-01")
+      as.POSIXct(
+        c(1.705944e+15, 1.705945e+15) / 1e6,
+        tz = "UTC",
+        origin = "1970-01-01"
+      )
     ),
     end_time = as.character(
       as.POSIXct(c(NA, 1.705945e+15) / 1e6, tz = "UTC", origin = "1970-01-01")
@@ -218,10 +239,6 @@ test_that(".import_clean_new", {
   )
 
   expect_equal(.import_clean_new(data, file_name), true)
-
-  # If the file name is incorrect, NA is returned for the study and participant_id
-  res <- .import_clean_new(data, "foo")
-  expect_true(all(is.na(select(res, "study_id", "participant_id"))))
 })
 
 test_that(".import_map_sensor_names", {
@@ -244,11 +261,21 @@ test_that(".import_is_duplicate", {
     study_id = "test_study",
     data_format = "carp",
     participant_id = c("12345", "12345", "23456", "23456"),
-    file_name = c("12345/test1.json", "12345/test2.json", "23456/test1.json", "23456/test2.json")
+    file_name = c(
+      "12345/test1.json",
+      "12345/test2.json",
+      "23456/test1.json",
+      "23456/test2.json"
+    )
   )
   add_study(db, study_id = data$study_id, data_format = data$data_format)
-  add_participant(db, participant_id = data$participant_id, study_id = data$study_id)
-  add_processed_files(db,
+  add_participant(
+    db,
+    participant_id = data$participant_id,
+    study_id = data$study_id
+  )
+  add_processed_files(
+    db,
     file_name = data$file_name,
     study_id = data$study_id,
     participant_id = data$participant_id
@@ -260,7 +287,12 @@ test_that(".import_is_duplicate", {
     study_id = c("test_study", "test_study", "foo-study", "foo-study"),
     data_format = c("carp", "carp", "bar", "bar"),
     participant_id = c("12345", "23456", "34567", "34567"),
-    file_name = c("12345/test3.json", "23456/test3.json", "34567/test1.json", "34567/test2.json")
+    file_name = c(
+      "12345/test3.json",
+      "23456/test3.json",
+      "34567/test1.json",
+      "34567/test2.json"
+    )
   )
   data2 <- rbind(data[c(1, 2), ], data2)
 
@@ -473,7 +505,6 @@ test_that(".import_write_to_db", {
   )
   expect_equal(nrow(DBI::dbGetQuery(db, "SELECT * FROM  Pedometer")), 1)
 
-
   # Clean up
   dbDisconnect(db)
   unlink(db@dbname)
@@ -515,26 +546,35 @@ test_that("save2db", {
 
   # Entry with the same ID should simply be skipped and give no error
   expect_error(
-    DBI::dbWithTransaction(db, save2db(db = db, name = "Pedometer", data = data)),
+    DBI::dbWithTransaction(
+      db,
+      save2db(db = db, name = "Pedometer", data = data)
+    ),
     NA
   )
   DBI::dbExecute(db, "VACUUM") # A vacuum to clear the tiny increase by replacement :)
   db_size3 <- file.size(filename)
   expect_equal(db_size2, db_size3)
-  expect_equal(DBI::dbGetQuery(db, "SELECT COUNT(*) FROM Pedometer")[[1]], 1000L)
+  expect_equal(
+    DBI::dbGetQuery(db, "SELECT COUNT(*) FROM Pedometer")[[1]],
+    1000L
+  )
   expect_equal(
     DBI::dbGetQuery(db, "SELECT * FROM Pedometer"),
     data
   )
 
   # Now try with part of the data being replicated
-  data <- rbind(data, data.frame(
-    measurement_id = paste0("12345_", 500:1500),
-    participant_id = "12345",
-    date = "2021-11-14",
-    time = "16:40:01.123",
-    step_count = 1
-  ))
+  data <- rbind(
+    data,
+    data.frame(
+      measurement_id = paste0("12345_", 500:1500),
+      participant_id = "12345",
+      date = "2021-11-14",
+      time = "16:40:01.123",
+      step_count = 1
+    )
+  )
 
   expect_error(
     DBI::dbWithTransaction(
@@ -555,7 +595,10 @@ test_that("save2db", {
   )
   db_size4 <- file.size(filename)
   expect_gt(db_size4, db_size3)
-  expect_equal(DBI::dbGetQuery(db, "SELECT COUNT(*) FROM Pedometer")[[1]], 1500L)
+  expect_equal(
+    DBI::dbGetQuery(db, "SELECT COUNT(*) FROM Pedometer")[[1]],
+    1500L
+  )
   expect_equal(
     DBI::dbGetQuery(db, "SELECT * FROM Pedometer"),
     distinct(data)
@@ -564,4 +607,60 @@ test_that("save2db", {
   # Cleanup
   dbDisconnect(db)
   file.remove(filename)
+})
+
+test_that(".import_meta_data_from_file_name correctly extracts metadata", {
+  file_names <- c(
+    "1234_studyA_participant1_m_Path_sense_2023-01-01_12-34-56.json",
+    "5678_studyB_participant2_m_Path_sense_2023-01-02_01-23-45.json",
+    "9012_studyC_participant3_m_Path_sense_2023-01-03_23-59-59.json"
+  )
+
+  result <- .import_meta_data_from_file_name(file_names)
+
+  # Check structure and values
+  expect_s3_class(result, "tbl_df")
+  expect_equal(ncol(result), 3)
+  expect_named(result, c("study_id", "participant_id", "file_name"))
+
+  # Check extracted metadata
+  expect_equal(result$study_id, c("studyA", "studyB", "studyC"))
+  expect_equal(
+    result$participant_id,
+    c("participant1", "participant2", "participant3")
+  )
+  expect_equal(result$file_name, file_names)
+})
+
+test_that(".import_meta_data_from_file_name handles missing participant ID or study ID", {
+  file_names <- c(
+    "1234__participant1_m_Path_sense_2023-01-01_12-34-56.json",
+    "5678_studyB__m_Path_sense_2023-01-02_01-23-45.json"
+  )
+
+  result <- .import_meta_data_from_file_name(file_names)
+
+  # Check structure and values
+  expect_s3_class(result, "tbl_df")
+  expect_equal(ncol(result), 3)
+  expect_named(result, c("study_id", "participant_id", "file_name"))
+
+  # Check missing metadata handling
+  expect_equal(result$study_id, c("", "studyB"))
+  expect_equal(result$participant_id, c("participant1", ""))
+  expect_equal(result$file_name, file_names)
+})
+
+test_that(".import_meta_data_from_file_name handles completely incorrect file names", {
+  file_names <- c(NA, "foo", "foo_bar")
+
+  res <- .import_meta_data_from_file_name(file_names)
+
+  expect_s3_class(res, "tbl_df")
+  expect_equal(ncol(res), 3)
+  expect_named(res, c("study_id", "participant_id", "file_name"))
+
+  expect_equal(res$study_id, rep("-1", 3))
+  expect_equal(res$participant_id, rep("N/A", 3))
+  expect_equal(res$file_name, c(NA, "foo", "foo_bar"))
 })

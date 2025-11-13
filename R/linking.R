@@ -1,14 +1,16 @@
-link_impl <- function(x,
-                      y,
-                      by,
-                      start_time,
-                      end_time,
-                      y_time,
-                      offset_before,
-                      offset_after,
-                      add_before,
-                      add_after,
-                      name) {
+link_impl <- function(
+  x,
+  y,
+  by,
+  start_time,
+  end_time,
+  y_time,
+  offset_before,
+  offset_after,
+  add_before,
+  add_after,
+  name
+) {
   # Force variables to be evaluated, or somehow it cannot be found later on.
   force(add_before)
   force(add_after)
@@ -65,7 +67,7 @@ link_impl <- function(x,
     dplyr::left_join(data_main, by = ".row_id", multiple = "all", relationship = "many-to-many")
 
   # Add the last measurement before start_time
-  tz <- attr(pull(y, {{ y_time }}), "tz")
+  tz <- lubridate::tz(pull(y, {{ y_time }}))
   if (add_before) {
     # Calculate in which groups there is a measurement that equals start_time
     equal_to_start <- data |>
@@ -86,7 +88,12 @@ link_impl <- function(x,
 
     # Add to the main result
     data_main <- data_main |>
-      dplyr::left_join(data_before, by = ".row_id", multiple = "all", relationship = "many-to-many") |>
+      dplyr::left_join(
+        data_before,
+        by = ".row_id",
+        multiple = "all",
+        relationship = "many-to-many"
+      ) |>
       mutate({{ name }} := purrr::map2(data_before, !!rlang::ensym(name), bind_rows)) |>
       select(-"data_before")
   }
@@ -112,7 +119,12 @@ link_impl <- function(x,
 
     # Add to the main result
     data_main <- data_main |>
-      dplyr::left_join(data_after, by = ".row_id", multiple = "all", relationship = "many-to-many") |>
+      dplyr::left_join(
+        data_after,
+        by = ".row_id",
+        multiple = "all",
+        relationship = "many-to-many"
+      ) |>
       mutate({{ name }} := purrr::map2(!!rlang::ensym(name), data_after, bind_rows)) |>
       select(-"data_after")
   }
@@ -138,15 +150,18 @@ link_impl <- function(x,
   }
 
   res <- data_main |>
-    mutate({{ name }} := ifelse(test = lapply(
-      X = !!rlang::ensym(name),
-      FUN = \(x) {
-        is.null(x) || identical(x, NA) || nrow(x) == 0
-      }
-    ),
-    yes = list(proto),
-    no = !!rlang::ensym(name)
-    )) |>
+    mutate(
+      {{ name }} := ifelse(
+        test = lapply(
+          X = !!rlang::ensym(name),
+          FUN = \(x) {
+            is.null(x) || identical(x, NA) || nrow(x) == 0
+          }
+        ),
+        yes = list(proto),
+        no = !!rlang::ensym(name)
+      )
+    ) |>
     select(-".row_id")
 
   res
@@ -351,18 +366,20 @@ link_impl <- function(x,
 #'   add_before = TRUE,
 #'   add_after = TRUE
 #' )
-link <- function(x,
-                 y,
-                 by = NULL,
-                 time,
-                 end_time = NULL,
-                 y_time,
-                 offset_before = 0,
-                 offset_after = 0,
-                 add_before = FALSE,
-                 add_after = FALSE,
-                 name = "data",
-                 split = by) {
+link <- function(
+  x,
+  y,
+  by = NULL,
+  time,
+  end_time = NULL,
+  y_time,
+  offset_before = 0,
+  offset_after = 0,
+  add_before = FALSE,
+  add_after = FALSE,
+  name = "data",
+  split = by
+) {
   check_arg(x, type = "data.frame")
   check_arg(y, type = "data.frame")
   check_arg(by, type = "character", allow_null = TRUE)
@@ -484,9 +501,8 @@ link <- function(x,
 #'
 #' @description `r lifecycle::badge("deprecated")`
 #'
-#'   This function is specific to mpathsenser databases. It is a wrapper around [link()] but
-#'   extracts data in the database for you. It is now soft deprecated as I feel this function's use
-#'   is limited in comparison to [link()].
+#'   This function is deprecated in favour of [link()]. It used to be a wrapper around [link()] but
+#'   extracts data in the database for you.
 #'
 #' @inheritParams get_data
 #' @inheritParams link
@@ -523,105 +539,24 @@ link <- function(x,
 #'   external_time = "time", offset_before = 300, offset_after = 300
 #' )
 #' }
-link_db <- function(db,
-                    sensor_one,
-                    sensor_two = NULL,
-                    external = NULL,
-                    external_time = "time",
-                    offset_before = 0,
-                    offset_after = 0,
-                    add_before = FALSE,
-                    add_after = FALSE,
-                    participant_id = NULL,
-                    start_date = NULL,
-                    end_date = NULL,
-                    reverse = FALSE,
-                    ignore_large = FALSE) {
+link_db <- function(
+  db,
+  sensor_one,
+  sensor_two = NULL,
+  external = NULL,
+  external_time = "time",
+  offset_before = 0,
+  offset_after = 0,
+  add_before = FALSE,
+  add_after = FALSE,
+  participant_id = NULL,
+  start_date = NULL,
+  end_date = NULL,
+  reverse = FALSE,
+  ignore_large = FALSE
+) {
   # Soft deprecate warning
-  lifecycle::deprecate_warn("1.1.2", "link_db()", "link()")
-
-  check_db(db)
-  check_arg(sensor_one, type = "character", n = 1)
-  check_arg(sensor_two, type = "character", n = 1, allow_null = TRUE)
-  check_arg(external, type = "data.frame", allow_null = TRUE)
-  check_arg(external_time, type = "character", n = 1)
-  check_arg(participant_id, type = "character", allow_null = TRUE)
-  check_arg(reverse, type = "logical", n = 1)
-  check_arg(ignore_large, type = "logical", n = 1)
-
-  if ((is.null(external) && is.null(sensor_two)) || (!is.null(external) && !is.null(sensor_two))) {
-    abort("Either a second sensor or an external data frame must be supplied.")
-  }
-
-  # See if data is not incredibly large
-  if (!ignore_large) {
-    n <- sum(
-      get_nrows(db, c(sensor_one, sensor_two), participant_id, start_date, end_date),
-      nrow(external)
-    )
-    if (n > 1e+05) {
-      abort("the total number of rows is higher than 100000. Use ignore_large = TRUE to continue")
-    }
-  }
-
-  if (!is.null(sensor_two)) {
-    dat_two <- get_data(db, sensor_two, participant_id, start_date, end_date) |>
-      mutate(time = paste(.data$date, .data$time)) |>
-      select(-"date") |>
-      collect() |>
-      mutate(time = as.POSIXct(.data$time, format = "%F %H:%M:%OS", tz = "UTC"))
-    y_time <- "time"
-  } else {
-    check_arg(pull(external, external_time), "POSIXt")
-    if (any(format(pull(external, external_time), "%Z") != "UTC")) {
-      warn(c(
-        "`external` is not using UTC as a time zone, unlike the data in the database.",
-        i = "Consider converting the time column to UTC."
-      ))
-    }
-
-    y_time <- external_time
-    dat_two <- external
-  }
-
-  # Get dates of dat_two to shrink dat_one as much as possible
-  dates <- unique(as.Date(dat_two$time))
-
-  dat_one <- get_data(db, sensor_one, participant_id, start_date, end_date) |>
-    filter(.data$date %in% dates) |>
-    mutate(time = paste(.data$date, .data$time)) |>
-    select(-"date") |>
-    collect() |>
-    mutate(time = as.POSIXct(.data$time, format = "%F %H:%M:%OS", "UTC"))
-  time <- "time"
-
-  if (reverse) {
-    tmp_time <- time
-    time <- y_time
-    y_time <- tmp_time
-  }
-
-  if (is.null(external) && reverse) {
-    tmp <- dat_one
-    dat_one <- dat_two
-    dat_two <- tmp
-  } else if (!is.null(external) && !reverse) {
-    tmp <- dat_one
-    dat_one <- external
-    dat_two <- tmp
-  }
-
-  link(
-    x = dat_one,
-    y = dat_two,
-    by = "participant_id",
-    time = {{ time }},
-    y_time = {{ y_time }},
-    offset_before = offset_before,
-    offset_after = offset_after,
-    add_before = add_before,
-    add_after = add_after
-  )
+  lifecycle::deprecate_stop("1.1.2", "link_db()", "link()")
 }
 
 #' Link gaps to (ESM) data
@@ -680,12 +615,13 @@ link_db <- function(db,
 #'   raw_data = TRUE
 #' )
 link_gaps <- function(
-    data,
-    gaps,
-    by = NULL,
-    offset_before = 0,
-    offset_after = 0,
-    raw_data = FALSE) {
+  data,
+  gaps,
+  by = NULL,
+  offset_before = 0,
+  offset_after = 0,
+  raw_data = FALSE
+) {
   # Argument checking
   check_arg(data, type = "data.frame")
   check_arg(gaps, type = "data.frame")
@@ -731,10 +667,7 @@ link_gaps <- function(
 
   # Set gaps time stamps out of the interval to the interval's bounds
   data_gaps <- data_gaps |>
-    mutate(from = ifelse(.data$from < .data$start_interval,
-      .data$start_interval,
-      .data$from
-    )) |>
+    mutate(from = ifelse(.data$from < .data$start_interval, .data$start_interval, .data$from)) |>
     mutate(to = ifelse(.data$to > .data$end_interval, .data$end_interval, .data$to)) |>
     mutate(gap = .data$to - .data$from)
 
@@ -742,32 +675,30 @@ link_gaps <- function(
     # Transform from and to back to POSIXct and nest the data
     data_gaps <- data_gaps |>
       select({{ by }}, "time", "from", "to", "gap") |>
-      mutate(from = as.POSIXct(.data$from,
-        origin = "1970-01-01",
-        tz = attr(gaps$from, "tzone")
-      )) |>
-      mutate(to = as.POSIXct(.data$to,
-        origin = "1970-01-01",
-        tz = attr(gaps$to, "tzone")
-      )) |>
+      mutate(from = as.POSIXct(.data$from, origin = "1970-01-01", tz = attr(gaps$from, "tzone"))) |>
+      mutate(to = as.POSIXct(.data$to, origin = "1970-01-01", tz = attr(gaps$to, "tzone"))) |>
       group_by(across(c({{ by }}, "time"))) |>
       nest(gap_data = c("from", "to", "gap")) |>
       ungroup()
 
     # Add gaps at beep level
-    data_gaps$gap <- vapply(data_gaps$gap_data, function(x) sum(x$gap, na.rm = TRUE),
+    data_gaps$gap <- vapply(
+      data_gaps$gap_data,
+      function(x) sum(x$gap, na.rm = TRUE),
       FUN.VALUE = double(1)
     )
 
     # Create empty data frame in case no results are found
     proto <- tibble(
-      from = as.POSIXct(vector(mode = "double"),
+      from = as.POSIXct(
+        vector(mode = "double"),
         origin = "1970-01-01",
         tz = attr(gaps$from, "tzone")
       ),
-      to = as.POSIXct(vector(mode = "double"),
-        origin = "1970-01-01", tz =
-          attr(gaps$from, "tzone")
+      to = as.POSIXct(
+        vector(mode = "double"),
+        origin = "1970-01-01",
+        tz = attr(gaps$from, "tzone")
       ),
       gap = integer(0)
     )
@@ -780,7 +711,12 @@ link_gaps <- function(
   # Merge with ESM data
   data <- data |>
     tibble::as_tibble() |>
-    dplyr::left_join(data_gaps, by = c(by, "time"), multiple = "all", relationship = "many-to-many") |>
+    dplyr::left_join(
+      data_gaps,
+      by = c(by, "time"),
+      multiple = "all",
+      relationship = "many-to-many"
+    ) |>
     mutate(gap = ifelse(is.na(.data$gap), 0, .data$gap))
 
   if (raw_data) {
@@ -793,16 +729,21 @@ link_gaps <- function(
 
 # Link intervals of y within intervals of x
 link_intervals <- function(
-    x, x_start, x_end,
-    y, y_start, y_end,
-    by = NULL,
-    name = "data") {
+  x,
+  x_start,
+  x_end,
+  y,
+  y_start,
+  y_end,
+  by = NULL,
+  name = "data"
+) {
   check_arg(x, "data.frame")
   check_arg(y, "data.frame")
   check_arg(by, "character", allow_null = TRUE)
   check_arg(name, "character", n = 1)
 
-  tz <- attr(pull(y, {{ y_start }}), "tz")
+  tz <- lubridate::tz(pull(y, {{ y_start }}))
 
   # Calculate which values in y are within x's bounds
   if (length(by) == 0 && utils::packageVersion("dplyr") >= "1.1.0") {
@@ -818,27 +759,20 @@ link_intervals <- function(
   res <- res |>
     mutate(across(c({{ y_start }}, {{ y_end }}), as.integer)) |>
     filter(
-      (
-        (is.na({{ y_end }} & {{ y_start }} >= {{ x_start }} & {{ y_start }} < {{ x_end }})) &
-          (is.na({{ y_start }} & {{ y_end }} >= {{ x_start }} & {{ y_end }} < {{ x_end }}))
-      ) |
+      ((is.na({{ y_end }} & {{ y_start }} >= {{ x_start }} & {{ y_start }} < {{ x_end }})) &
+        (is.na({{ y_start }} & {{ y_end }} >= {{ x_start }} & {{ y_end }} < {{ x_end }}))) |
         ({{ y_start }} < {{ x_end }} & {{ y_end }} > {{ x_start }})
     )
 
   # Set gaps time stamps out of the interval to the interval's bounds
   res <- res |>
-    mutate({{ y_start }} := ifelse({{ y_start }} < {{ x_start }},
-      {{ x_start }},
-      {{ y_start }}
-    )) |>
-    mutate({{ y_end }} := ifelse({{ y_end }} > {{ x_end }},
-      {{ x_end }},
-      {{ y_end }}
-    )) |>
+    mutate({{ y_start }} := ifelse({{ y_start }} < {{ x_start }}, {{ x_start }}, {{ y_start }})) |>
+    mutate({{ y_end }} := ifelse({{ y_end }} > {{ x_end }}, {{ x_end }}, {{ y_end }})) |>
     mutate(across(c({{ y_start }}, {{ y_end }}), \(.x) lubridate::as_datetime(.x, tz = tz)))
 
   out <- x |>
-    dplyr::nest_join(res,
+    dplyr::nest_join(
+      res,
       by = c(
         by,
         colnames(mutate(ungroup(x), {{ x_start }}, .keep = "used")),
@@ -864,6 +798,7 @@ link_intervals <- function(
 #' @param fixed Whether to create fixed bins. If `TRUE`, bins will be rounded to, for example,
 #' whole hours or days (depending on `by`). If `FALSE`, bins will be created based on the
 #' first timestamp.
+#' @param .name The name of the column containing the nested data.
 #'
 #' @seealso [link_gaps()] for linking gaps to data.
 #' @returns A tibble containing the group columns (if any), date, hour (if `by = "hour"`), and
@@ -945,11 +880,14 @@ link_intervals <- function(
 #'   mutate(duration = .data$lead - .data$datetime) |>
 #'   group_by(bin, .add = TRUE) |>
 #'   summarise(duration = sum(.data$duration, na.rm = TRUE), .groups = "drop")
-bin_data <- function(data,
-                     start_time,
-                     end_time,
-                     by = c("sec", "min", "hour", "day"),
-                     fixed = TRUE) {
+bin_data <- function(
+  data,
+  start_time,
+  end_time,
+  by = c("sec", "min", "hour", "day"),
+  fixed = TRUE,
+  .name = "bin"
+) {
   check_arg(data, "data.frame")
   check_arg(fixed, "logical")
 
@@ -968,11 +906,13 @@ bin_data <- function(data,
     ))
   }
 
-  tz <- attr(pull(data, {{ start_time }}), "tz")
+  tz <- lubridate::tz(pull(data, {{ start_time }}))
 
   # check that start_time and end_time are a datetime, or try to convert
-  if (!lubridate::is.POSIXt(pull(data, {{ start_time }})) ||
-    !lubridate::is.POSIXt(pull(data, {{ end_time }}))) {
+  if (
+    !lubridate::is.POSIXt(pull(data, {{ start_time }})) ||
+      !lubridate::is.POSIXt(pull(data, {{ end_time }}))
+  ) {
     data <- data |>
       mutate({{ start_time }} := as.POSIXct({{ start_time }}, origin = "1970-01-01")) |>
       mutate({{ end_time }} := as.POSIXct({{ end_time }}, origin = "1970-01-01"))
@@ -996,14 +936,17 @@ bin_data <- function(data,
     distinct() |>
     drop_na("bin_start")
 
-  if (utils::packageVersion("dplyr") >= "1.1.0") { # nocov start
+  if (utils::packageVersion("dplyr") >= "1.1.0") {
+    # nocov start
     groups <- dplyr::group_vars(out)
     out <- out |>
-      dplyr::reframe(bin_start = seq.POSIXt(
-        from = min(.data$bin_start, na.rm = TRUE),
-        to = max(.data$bin_start, na.rm = TRUE) + by_duration,
-        by = by_duration
-      ))
+      dplyr::reframe(
+        bin_start = seq.POSIXt(
+          from = min(.data$bin_start, na.rm = TRUE),
+          to = max(.data$bin_start, na.rm = TRUE) + by_duration,
+          by = by_duration
+        )
+      )
 
     # Regroup after reframe
     if (length(groups) > 0) {
@@ -1011,11 +954,13 @@ bin_data <- function(data,
     }
   } else {
     out <- out |>
-      summarise(bin_start = seq.POSIXt(
-        from = min(.data$bin_start, na.rm = TRUE),
-        to = max(.data$bin_start, na.rm = TRUE) + by_duration,
-        by = by_duration
-      ))
+      summarise(
+        bin_start = seq.POSIXt(
+          from = min(.data$bin_start, na.rm = TRUE),
+          to = max(.data$bin_start, na.rm = TRUE) + by_duration,
+          by = by_duration
+        )
+      )
   } # nocov end
 
   if (by == "day") {
@@ -1026,22 +971,25 @@ bin_data <- function(data,
   out <- out |>
     mutate(bin_start = as.integer(as.POSIXct(.data$bin_start)))
 
-
   out <- out |>
     mutate(bin_end = lead(.data$bin_start)) |>
     drop_na("bin_end")
 
   out <- link_intervals(
-    x = out, x_start = .data$bin_start, x_end = .data$bin_end,
-    y = data, y_start = {{ start_time }}, y_end = {{ end_time }},
+    x = out,
+    x_start = .data$bin_start,
+    x_end = .data$bin_end,
+    y = data,
+    y_start = {{ start_time }},
+    y_end = {{ end_time }},
     by = group_vars,
     name = "bin_data"
   )
 
   out <- out |>
     mutate(bin_start = lubridate::as_datetime(.data$bin_start, tz = tz)) |>
-    dplyr::rename(bin = "bin_start") |>
-    select(-"bin_end")
+    dplyr::rename({{ .name }} := "bin_start") |>
+    select(-any_of("bin_end"))
 
   out
 }
